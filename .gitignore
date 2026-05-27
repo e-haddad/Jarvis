@@ -1,0 +1,10 @@
+*.bak
+.backups/
+__pycache__/
+*.pyc
+google_token.json
+google_credentials.json
+.gmail_seen_ids.txt
+usage_data.json
+jarvis.log
+jarvis.error.log
