@@ -1,3 +1,4 @@
+# author: Edward Haddad
 import requests
 
 def get_bitcoin_price():
