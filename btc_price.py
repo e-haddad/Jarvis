@@ -20,3 +20,5 @@ def get_bitcoin_price():
 
 if __name__ == "__main__":
     get_bitcoin_price()
+
+# Hi developer
