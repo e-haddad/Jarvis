@@ -8,3 +8,13 @@ google_credentials.json
 usage_data.json
 jarvis.log
 jarvis.error.log
+.DS_Store
+.spotify_token
+.claude/
+google_token.json
+google_credentials.json
+kokoro-v1.0.onnx
+voices-v1.0.bin
+icon.png
+input.wav
+usage_data.json
