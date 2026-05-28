@@ -1,0 +1,33 @@
+{
+  "allowed_paths": {
+    "~/Desktop/Projects/Jarvis": {
+      "access": "read_write",
+      "description": "Jarvis project — active development"
+    },
+    "~/Desktop/OBS/Edward": {
+      "access": "read_write",
+      "description": "Obsidian vault — all notes"
+    },
+    "~/Desktop/Projects": {
+      "access": "read",
+      "description": "All projects — listing and reading only"
+    },
+    "~/Desktop/Important Docs": {
+      "access": "read",
+      "description": "Career docs — resumes, cover letters, OPT files"
+    },
+    "~/Desktop/OU": {
+      "access": "read",
+      "description": "Academic files"
+    }
+  },
+  "blocked_paths": [
+    "~/Desktop",
+    "~/Downloads",
+    "~/Documents",
+    "~/Library",
+    "~/.ssh",
+    "~/.ollama"
+  ],
+  "notes": "Expand whitelist explicitly as needed. Never broaden blocked_paths. Write access review scheduled for Phase 4 when Gemma 27B is running on Mac Studio."
+}

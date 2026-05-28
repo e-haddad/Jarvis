@@ -1,0 +1,1247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="apple-touch-icon" href="/static/icon.png">
+<title>JARVIS HUD</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #05070d;
+    --bg-elev: #07090f;
+    --ink: #e8ecf2;
+    --ink-dim: #8b94a8;
+    --ink-fainter: #4b5468;
+    --hair: rgba(255,255,255,0.06);
+    --hair-strong: rgba(255,255,255,0.10);
+    --accent: oklch(0.70 0.18 252);
+    --accent-rgb: 64 142 255;
+    --accent-soft: oklch(0.70 0.18 252 / 0.16);
+    --accent-faint: oklch(0.70 0.18 252 / 0.06);
+    --accent-glow: oklch(0.70 0.18 252 / 0.28);
+    --state-standby: oklch(0.50 0.02 250);
+    --state-listening: oklch(0.74 0.16 152);
+    --state-thinking: oklch(0.72 0.18 252);
+    --state-speaking: oklch(0.78 0.14 220);
+    --ease: cubic-bezier(0.32, 0.72, 0, 1);
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+    --font-ui: -apple-system, "SF Pro Display", "SF Pro Text", BlinkMacSystemFont, "Helvetica Neue", system-ui, sans-serif;
+    --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
+  }
+  [data-theme="sonnet"] {
+    --accent: oklch(0.68 0.27 18);
+    --accent-rgb: 255 64 96;
+    --accent-soft: oklch(0.68 0.27 18 / 0.22);
+    --accent-faint: oklch(0.68 0.27 18 / 0.09);
+    --accent-glow: oklch(0.68 0.27 18 / 0.48);
+    --state-thinking: oklch(0.70 0.26 18);
+    --state-speaking: oklch(0.76 0.20 22);
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-ui);
+    height: 100%; overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    letter-spacing: -0.01em;
+  }
+  #app { position: fixed; inset: 0; transition: background 1.2s var(--ease); }
+  .bg {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% 50%, rgb(var(--accent-rgb) / 0.06) 0%, rgb(var(--accent-rgb) / 0.02) 35%, transparent 70%),
+      radial-gradient(ellipse 120% 100% at 50% 50%, transparent 40%, rgba(0,0,0,0.55) 90%, rgba(0,0,0,0.85) 100%),
+      var(--bg);
+    transition: background 1.2s var(--ease);
+  }
+  .bg-grid {
+    position: absolute; inset: 0;
+    background-image: linear-gradient(to right, rgb(var(--accent-rgb) / 0.055) 1px, transparent 1px), linear-gradient(to bottom, rgb(var(--accent-rgb) / 0.055) 1px, transparent 1px);
+    background-size: 64px 64px; background-position: center center;
+    mask-image: radial-gradient(ellipse 75% 80% at 50% 50%, #000 25%, transparent 95%);
+    -webkit-mask-image: radial-gradient(ellipse 75% 80% at 50% 50%, #000 25%, transparent 95%);
+    transition: background-image 1.2s var(--ease);
+  }
+  .bg-grid-fine {
+    position: absolute; inset: 0;
+    background-image: linear-gradient(to right, rgb(var(--accent-rgb) / 0.025) 1px, transparent 1px), linear-gradient(to bottom, rgb(var(--accent-rgb) / 0.025) 1px, transparent 1px);
+    background-size: 16px 16px; background-position: center center;
+    mask-image: radial-gradient(ellipse 55% 60% at 50% 50%, #000 0%, transparent 80%);
+    -webkit-mask-image: radial-gradient(ellipse 55% 60% at 50% 50%, #000 0%, transparent 80%);
+  }
+  .bg-noise {
+    position: absolute; inset: 0; opacity: 0.04; mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/></svg>");
+  }
+  .corner {
+    position: absolute; font-family: var(--font-mono); font-size: 10.5px;
+    color: var(--ink-fainter); letter-spacing: 0.18em; font-weight: 500;
+    user-select: none; opacity: 0; animation: fade-up 0.9s var(--ease-out) 0.4s forwards;
+  }
+  .corner.tl { top: 22px; left: 28px; }
+  .corner.tr { top: 22px; right: 28px; }
+  .corner.bl { bottom: 22px; left: 28px; }
+  .corner.br { bottom: 22px; right: 28px; }
+  @keyframes fade-up { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes panel-in {
+    from { opacity: 0; transform: translateY(8px) scale(0.995); filter: blur(6px); }
+    to   { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+  }
+  .ring-wrap {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: 520px; height: 520px; pointer-events: none;
+    opacity: 0; animation: ring-in 1.2s var(--ease-out) 0.1s forwards;
+  }
+  @keyframes ring-in {
+    from { opacity: 0; transform: translate(-50%, -50%) scale(0.94); }
+    to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  }
+  .ring-svg { width: 100%; height: 100%; overflow: visible; }
+  .ring-bloom {
+    position: absolute; inset: 0;
+    background: radial-gradient(circle at 50% 50%, var(--accent-glow) 0%, rgb(var(--accent-rgb) / 0.10) 22%, transparent 55%);
+    filter: blur(20px); opacity: 0.7;
+    transition: opacity 0.6s var(--ease), background 1.2s var(--ease);
+  }
+  [data-state="listening"] .ring-bloom { opacity: 0.9; }
+  [data-state="thinking"]  .ring-bloom { opacity: 1.0; }
+  [data-state="speaking"]  .ring-bloom { opacity: 1.1; }
+  .tick-rotate-cw  { animation: spin 36s linear infinite; transform-origin: 50% 50%; }
+  .tick-rotate-ccw { animation: spin 60s linear infinite reverse; transform-origin: 50% 50%; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .arc-listen-a { animation: spin 4s linear infinite; transform-origin: 50% 50%; }
+  .arc-listen-b { animation: spin 6.4s linear infinite reverse; transform-origin: 50% 50%; }
+  .orbit-thinking { animation: spin 2.2s linear infinite; transform-origin: 50% 50%; }
+  .thinking-arc-a { animation: spin 3.5s linear infinite; transform-origin: 50% 50%; }
+  .thinking-arc-b { animation: spin 5s linear infinite reverse; transform-origin: 50% 50%; }
+  .wave-ring { transform-origin: 50% 50%; animation: wave-pulse 2.4s ease-out infinite; opacity: 0; }
+  .wave-ring.w2 { animation-delay: 0.8s; }
+  .wave-ring.w3 { animation-delay: 1.6s; }
+  @keyframes wave-pulse { 0% { transform: scale(1.0); opacity: 0.55; } 100% { transform: scale(1.18); opacity: 0; } }
+  .standby-pulse { animation: breathe 6s ease-in-out infinite; transform-origin: 50% 50%; }
+  @keyframes breathe { 0%, 100% { opacity: 0.55; } 50% { opacity: 0.85; } }
+  .center-label {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    text-align: center; pointer-events: none;
+    opacity: 0; animation: fade-in 0.8s var(--ease-out) 0.4s forwards;
+  }
+  .center-label .name {
+    font-family: var(--font-ui); font-weight: 200; font-size: 38px;
+    letter-spacing: 0.42em; margin-right: -0.42em; color: var(--ink);
+    text-shadow: 0 0 24px rgb(var(--accent-rgb) / 0.35);
+  }
+  .center-label .status {
+    margin-top: 12px; font-family: var(--font-mono); font-size: 10.5px;
+    font-weight: 500; letter-spacing: 0.32em; color: var(--ink-dim);
+    display: inline-flex; align-items: center; gap: 8px; transition: color 0.4s var(--ease);
+  }
+  .center-label .status .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--state-standby); box-shadow: 0 0 8px currentColor; transition: background 0.4s var(--ease);
+  }
+  [data-state="listening"] .center-label .status .dot { background: var(--state-listening); }
+  [data-state="thinking"]  .center-label .status .dot { background: var(--state-thinking); animation: pulse-dot 1.2s ease-in-out infinite; }
+  [data-state="speaking"]  .center-label .status .dot { background: var(--state-speaking); }
+  @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .panel {
+    position: absolute;
+    background: linear-gradient(180deg, rgba(12,15,22,0.72) 0%, rgba(8,11,18,0.68) 100%);
+    backdrop-filter: blur(24px) saturate(1.4); -webkit-backdrop-filter: blur(24px) saturate(1.4);
+    border: 1px solid var(--hair); border-radius: 10px;
+    box-shadow: 0 1px 0 0 rgba(255,255,255,0.04) inset, 0 24px 60px -20px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.35);
+    overflow: hidden; opacity: 0; animation: panel-in 0.7s var(--ease-out) forwards;
+    display: flex; flex-direction: column;
+    min-height: 0;
+  }
+  .panel.resizing { transition: none !important; user-select: none; }
+  .panel-resize {
+    position: absolute; right: 0; bottom: 0;
+    width: 18px; height: 18px;
+    cursor: nwse-resize;
+    z-index: 5;
+    display: flex; align-items: flex-end; justify-content: flex-end;
+    padding: 3px;
+    opacity: 0.35; transition: opacity 0.2s var(--ease);
+  }
+  .panel:hover .panel-resize { opacity: 0.75; }
+  .panel-resize:hover { opacity: 1; }
+  .panel-resize::before {
+    content: "";
+    width: 9px; height: 9px;
+    background:
+      linear-gradient(135deg, transparent 0 55%, rgb(var(--accent-rgb) / 0.85) 56% 62%, transparent 63% 73%, rgb(var(--accent-rgb) / 0.85) 74% 80%, transparent 81% 100%);
+  }
+  .panel.delay-1 { animation-delay: 0.15s; }
+  .panel.delay-2 { animation-delay: 0.25s; }
+  .panel.delay-3 { animation-delay: 0.35s; }
+  .panel.delay-4 { animation-delay: 0.45s; }
+  .panel::before, .panel::after, .panel > .corner-br-a, .panel > .corner-br-b {
+    content: ""; position: absolute; width: 10px; height: 10px;
+    border: 1px solid rgb(var(--accent-rgb) / 0.45); pointer-events: none; transition: border-color 1.2s var(--ease);
+  }
+  .panel::before { top: -1px; left: -1px;  border-right: none; border-bottom: none; border-top-left-radius: 10px; }
+  .panel::after  { top: -1px; right: -1px; border-left: none;  border-bottom: none; border-top-right-radius: 10px; }
+  .panel > .corner-br-a { bottom: -1px; left: -1px;  border-right: none; border-top: none; border-bottom-left-radius: 10px; }
+  .panel > .corner-br-b { bottom: -1px; right: -1px; border-left: none;  border-top: none; border-bottom-right-radius: 10px; }
+  .panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 18px 12px; border-bottom: 1px solid var(--hair); cursor: grab; user-select: none;
+    flex-shrink: 0;
+  }
+  .panel-head:active { cursor: grabbing; }
+  .panel-title {
+    font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+    color: var(--ink); letter-spacing: 0.24em; display: flex; align-items: center; gap: 10px;
+  }
+  .panel-title .glyph {
+    width: 5px; height: 5px; border-radius: 50%; background: var(--accent);
+    box-shadow: 0 0 8px var(--accent-glow); transition: background 0.6s var(--ease), box-shadow 0.6s var(--ease);
+  }
+  .panel-head .drag-hint { font-family: var(--font-mono); font-size: 9px; color: var(--ink-fainter); letter-spacing: 0.2em; }
+  .panel-body {
+    padding: 14px 18px 16px;
+    flex: 1 1 auto; min-height: 0;
+    overflow-y: auto; overflow-x: hidden;
+    display: flex; flex-direction: column;
+  }
+  .panel-body::-webkit-scrollbar { width: 4px; }
+  .panel-body::-webkit-scrollbar-thumb { background: rgb(var(--accent-rgb) / 0.20); border-radius: 2px; }
+  .sys-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 7px 0; font-family: var(--font-mono); font-size: 11.5px;
+    border-bottom: 1px solid rgba(255,255,255,0.025);
+  }
+  .sys-row:last-child { border-bottom: none; }
+  .sys-row .k { color: var(--ink-dim); letter-spacing: 0.18em; font-weight: 500; }
+  .sys-row .v { color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 500; }
+  .sys-row .v.accent { color: var(--accent); transition: color 0.8s var(--ease); }
+  .sys-row .v.ok { color: oklch(0.78 0.14 152); }
+  .sys-row .v.warn { color: oklch(0.82 0.13 90); }
+  .sys-row .v.clickable { cursor: pointer; transition: filter 0.2s var(--ease); }
+  .sys-row .v.clickable:hover { filter: brightness(1.3); }
+  .conv-list {
+    flex: 1 1 auto; min-height: 0;
+    overflow-y: auto;
+    display: flex; flex-direction: column; gap: 10px;
+    padding-right: 4px; margin-right: -4px;
+  }
+  .conv-list::-webkit-scrollbar { width: 4px; }
+  .conv-list::-webkit-scrollbar-thumb { background: rgb(var(--accent-rgb) / 0.25); border-radius: 2px; }
+  .conv-entry {
+    padding: 10px 12px 11px; border-radius: 6px;
+    border-left: 2px solid var(--hair-strong); background: rgba(255,255,255,0.015);
+  }
+  .conv-entry.jarvis { border-left-color: var(--accent); background: rgb(var(--accent-rgb) / 0.05); }
+  .conv-meta {
+    display: flex; align-items: center; gap: 8px; font-family: var(--font-mono);
+    font-size: 9.5px; letter-spacing: 0.18em; color: var(--ink-fainter); margin-bottom: 4px;
+  }
+  .conv-meta .role { color: var(--ink-dim); font-weight: 600; }
+  .conv-entry.jarvis .role { color: var(--accent); transition: color 0.8s var(--ease); }
+  .conv-text { font-family: var(--font-ui); font-size: 13px; color: var(--ink); line-height: 1.5; letter-spacing: -0.005em; text-wrap: pretty; }
+  .agent-row {
+    display: flex; align-items: center; gap: 12px; padding: 9px 0;
+    font-family: var(--font-mono); font-size: 11px; border-bottom: 1px solid rgba(255,255,255,0.025);
+  }
+  .agent-row:last-child { border-bottom: none; }
+  .agent-row .pip { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-fainter); flex-shrink: 0; transition: all 0.3s var(--ease); }
+  .agent-row.active .pip { background: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
+  .agent-row .name { color: var(--ink-dim); letter-spacing: 0.16em; flex: 1; }
+  .agent-row.active .name { color: var(--ink); }
+  .agent-row .ts { color: var(--ink-fainter); font-variant-numeric: tabular-nums; }
+  .usage-card { padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.025); }
+  .usage-card:last-child { border-bottom: none; }
+  .usage-card .label { font-family: var(--font-mono); font-size: 10px; color: var(--ink-dim); letter-spacing: 0.2em; margin-bottom: 6px; display: flex; justify-content: space-between; }
+  .usage-card .value { font-family: var(--font-ui); font-size: 22px; font-weight: 300; color: var(--ink); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; margin-bottom: 6px; }
+  .usage-card .bar { height: 3px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden; }
+  .usage-card .bar > i { display: block; height: 100%; background: var(--accent); border-radius: 2px; box-shadow: 0 0 8px var(--accent-glow); transition: width 0.8s var(--ease), background 0.8s var(--ease); }
+  .usage-card .sub { font-family: var(--font-mono); font-size: 9.5px; color: var(--ink-fainter); margin-top: 5px; letter-spacing: 0.12em; }
+  .top-badge {
+    position: absolute; top: 22px; left: 50%; transform: translateX(-50%);
+    font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.32em;
+    padding: 7px 16px; border-radius: 999px; color: var(--accent);
+    background: rgb(var(--accent-rgb) / 0.06); border: 1px solid rgb(var(--accent-rgb) / 0.25);
+    backdrop-filter: blur(16px); display: inline-flex; align-items: center; gap: 8px;
+    opacity: 0; transform: translate(-50%, -8px);
+    transition: opacity 0.5s var(--ease), transform 0.5s var(--ease), color 0.8s var(--ease), background 0.8s var(--ease), border-color 0.8s var(--ease);
+  }
+  .top-badge.show { opacity: 1; transform: translate(-50%, 0); }
+  .top-badge .pip { width: 5px; height: 5px; border-radius: 50%; background: currentColor; box-shadow: 0 0 6px currentColor; }
+  .boot {
+    position: absolute; inset: 0; background: var(--bg);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 14px; z-index: 50; transition: opacity 0.9s var(--ease);
+  }
+  .boot.gone { opacity: 0; pointer-events: none; }
+  .boot-glyph {
+    width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--accent-soft);
+    position: relative; margin-bottom: 18px; animation: boot-glyph 2.4s var(--ease) infinite;
+  }
+  .boot-glyph::before {
+    content: ""; position: absolute; inset: -6px;
+    border: 1px solid transparent; border-top-color: var(--accent);
+    border-radius: 50%; animation: spin 1.6s linear infinite;
+  }
+  @keyframes boot-glyph { 0%, 100% { opacity: 0.55; transform: scale(1); } 50% { opacity: 1; transform: scale(1.05); } }
+  .boot-line { font-family: var(--font-mono); font-size: 11px; color: var(--ink-dim); letter-spacing: 0.28em; opacity: 0; animation: fade-in 0.6s var(--ease-out) forwards; }
+  .boot-line.l1 { animation-delay: 0.3s; }
+  .boot-line.l2 { animation-delay: 1.4s; color: var(--ink-fainter); font-size: 10px; }
+  .boot-line.l3 { animation-delay: 2.4s; color: var(--accent); }
+
+  /* Conversation input — embedded in panel */
+  .conv-input-row {
+    display: flex; gap: 8px; margin-top: 12px;
+    padding-top: 12px; border-top: 1px solid var(--hair);
+  }
+  .conv-input {
+    flex: 1; background: rgba(255,255,255,0.04);
+    border: 1px solid rgb(var(--accent-rgb) / 0.2); border-radius: 6px;
+    color: var(--ink); font-family: var(--font-ui); font-size: 12px;
+    padding: 8px 12px; outline: none; letter-spacing: -0.01em;
+    transition: border-color 0.2s var(--ease);
+  }
+  .conv-input:focus { border-color: rgb(var(--accent-rgb) / 0.6); }
+  .conv-input::placeholder { color: var(--ink-fainter); }
+  .conv-send {
+    background: rgb(var(--accent-rgb) / 0.10); border: 1px solid rgb(var(--accent-rgb) / 0.25);
+    border-radius: 6px; color: var(--accent); font-family: var(--font-mono);
+    font-size: 9px; letter-spacing: 0.2em; padding: 8px 14px; cursor: pointer;
+    transition: background 0.2s var(--ease);
+  }
+  .conv-send:hover { background: rgb(var(--accent-rgb) / 0.20); }
+  .conv-empty { font-family: var(--font-mono); font-size: 10px; color: var(--ink-fainter); letter-spacing: 0.14em; text-align: center; padding: 20px 0; }
+
+  /* Backend status pill — top-left, next to JARVIS · PHASE 5 */
+  .corner.tl {
+    display: inline-flex; align-items: center; gap: 14px;
+  }
+  .corner-sep {
+    color: var(--ink-fainter); opacity: 0.5;
+  }
+  .backend-pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.18em; font-weight: 500;
+    padding: 4px 10px; border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.06);
+    background: rgba(255,255,255,0.02);
+    color: var(--ink-fainter);
+    transition: color 0.4s var(--ease), border-color 0.4s var(--ease), background 0.4s var(--ease);
+  }
+  .backend-pill .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--ink-fainter); box-shadow: none;
+    transition: background 0.4s var(--ease), box-shadow 0.4s var(--ease);
+  }
+  .backend-pill.connected {
+    color: oklch(0.82 0.14 152);
+    border-color: oklch(0.78 0.14 152 / 0.25);
+    background: oklch(0.78 0.14 152 / 0.06);
+  }
+  .backend-pill.connected .dot {
+    background: oklch(0.82 0.16 152);
+    box-shadow: 0 0 8px oklch(0.82 0.16 152 / 0.8);
+    animation: backend-breathe 2.4s ease-in-out infinite;
+  }
+  .backend-pill.disconnected {
+    color: oklch(0.78 0.13 60);
+    border-color: oklch(0.78 0.13 60 / 0.25);
+    background: oklch(0.78 0.13 60 / 0.05);
+  }
+  .backend-pill.disconnected .dot { background: oklch(0.78 0.13 60); box-shadow: 0 0 6px oklch(0.78 0.13 60 / 0.7); }
+  .backend-pill.error {
+    color: oklch(0.70 0.24 22);
+    border-color: oklch(0.70 0.24 22 / 0.3);
+    background: oklch(0.70 0.24 22 / 0.07);
+  }
+  .backend-pill.error .dot { background: oklch(0.70 0.24 22); box-shadow: 0 0 8px oklch(0.70 0.24 22 / 0.8); }
+  @keyframes backend-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+  /* Bottom dock — panel visibility toggles */
+  .dock {
+    position: fixed; bottom: 56px; left: 50%; transform: translateX(-50%);
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px; border-radius: 14px;
+    background: linear-gradient(180deg, rgba(12,15,22,0.72) 0%, rgba(8,11,18,0.78) 100%);
+    backdrop-filter: blur(24px) saturate(1.4); -webkit-backdrop-filter: blur(24px) saturate(1.4);
+    border: 1px solid var(--hair);
+    box-shadow: 0 1px 0 0 rgba(255,255,255,0.04) inset, 0 20px 50px -16px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.35);
+    z-index: 30;
+    opacity: 0; transform: translate(-50%, 12px);
+    animation: dock-in 0.7s var(--ease-out) 0.55s forwards;
+  }
+  @keyframes dock-in {
+    to { opacity: 1; transform: translate(-50%, 0); }
+  }
+  .dock-btn {
+    appearance: none; border: 1px solid transparent; background: transparent;
+    padding: 8px 14px; border-radius: 9px; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 9px;
+    font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+    letter-spacing: 0.24em; color: var(--ink-fainter);
+    transition: color 0.2s var(--ease), background 0.2s var(--ease), border-color 0.2s var(--ease);
+  }
+  .dock-btn:hover { color: var(--ink-dim); background: rgba(255,255,255,0.03); }
+  .dock-btn .pip {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--ink-fainter); box-shadow: none;
+    transition: background 0.25s var(--ease), box-shadow 0.25s var(--ease);
+  }
+  .dock-btn.on {
+    color: var(--accent);
+    background: rgb(var(--accent-rgb) / 0.08);
+    border-color: rgb(var(--accent-rgb) / 0.28);
+  }
+  .dock-btn.on .pip {
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent-glow);
+  }
+  .dock-btn:focus-visible { outline: none; border-color: rgb(var(--accent-rgb) / 0.45); }
+  .dock-divider {
+    width: 1px; height: 18px; background: var(--hair); margin: 0 4px;
+  }
+
+  .tiny-warn { display: none; }
+
+  /* ── Spotify Panel ────────────────────────────────────────────────────────── */
+  .spotify-art {
+    width: 100%; aspect-ratio: 1; border-radius: 6px; object-fit: cover;
+    background: rgba(255,255,255,0.04); margin-bottom: 12px;
+    display: block;
+  }
+  .spotify-art-placeholder {
+    width: 100%; aspect-ratio: 1; border-radius: 6px;
+    background: rgba(255,255,255,0.04); margin-bottom: 12px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .spotify-art-placeholder svg { opacity: 0.18; }
+  .spotify-track { font-family: var(--font-ui); font-size: 13px; font-weight: 500; color: var(--ink); letter-spacing: -0.01em; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .spotify-artist { font-family: var(--font-mono); font-size: 10px; color: var(--ink-dim); letter-spacing: 0.12em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .spotify-progress { margin-top: 12px; }
+  .spotify-bar { height: 3px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden; margin-bottom: 6px; }
+  .spotify-bar-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 1s linear; }
+  .spotify-times { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 9px; color: var(--ink-fainter); letter-spacing: 0.1em; }
+  .spotify-idle { font-family: var(--font-mono); font-size: 10px; color: var(--ink-fainter); letter-spacing: 0.16em; text-align: center; padding: 20px 0; }
+
+  .spotify-controls { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 14px; }
+  .spotify-btn { background: none; border: none; cursor: pointer; color: var(--ink-dim); padding: 6px; border-radius: 50%; transition: color 0.2s, background 0.2s; display: flex; align-items: center; justify-content: center; }
+  .spotify-btn:hover { color: var(--ink); background: rgba(255,255,255,0.06); }
+  .spotify-btn.play { color: var(--accent); background: rgb(var(--accent-rgb) / 0.10); }
+  .spotify-btn.play:hover { background: rgb(var(--accent-rgb) / 0.20); }
+
+  /* ── Timer Panel ──────────────────────────────────────────────────────────── */
+  .timer-stack {
+    position: absolute; top: 70px; right: 32px;
+    display: flex; flex-direction: column; gap: 12px;
+    pointer-events: none; z-index: 20;
+  }
+  .timer-panel {
+    pointer-events: all;
+    background: linear-gradient(180deg, rgba(12,15,22,0.82) 0%, rgba(8,11,18,0.78) 100%);
+    backdrop-filter: blur(24px) saturate(1.4); -webkit-backdrop-filter: blur(24px) saturate(1.4);
+    border: 1px solid var(--hair); border-radius: 10px;
+    box-shadow: 0 24px 60px -20px rgba(0,0,0,0.55);
+    width: 220px; padding: 16px;
+    animation: panel-in 0.5s var(--ease-out) forwards;
+  }
+  .timer-panel.expiring { border-color: rgb(var(--accent-rgb) / 0.5); }
+  .timer-panel.done { animation: timer-flash 0.4s ease-in-out 3, fade-out 0.5s var(--ease) 1.2s forwards; }
+  @keyframes timer-flash { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+  @keyframes fade-out { to { opacity: 0; transform: scale(0.95); } }
+  .timer-header { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+  .timer-header .pip { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent-glow); flex-shrink: 0; }
+  .timer-title { font-family: var(--font-mono); font-size: 10px; font-weight: 600; color: var(--ink); letter-spacing: 0.2em; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .timer-ring-wrap { position: relative; width: 80px; height: 80px; margin: 0 auto 12px; }
+  .timer-ring-svg { width: 80px; height: 80px; transform: rotate(-90deg); }
+  .timer-ring-bg { fill: none; stroke: rgb(var(--accent-rgb) / 0.12); stroke-width: 3; }
+  .timer-ring-fg { fill: none; stroke: rgb(var(--accent-rgb)); stroke-width: 3; stroke-linecap: round; transition: stroke-dashoffset 1s linear, stroke 0.3s; }
+  .timer-panel.expiring .timer-ring-fg { stroke: oklch(0.82 0.13 90); }
+  .timer-panel.done .timer-ring-fg { stroke: oklch(0.78 0.14 152); }
+  .timer-countdown { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 16px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .timer-label { font-family: var(--font-mono); font-size: 9px; color: var(--ink-fainter); letter-spacing: 0.18em; text-align: center; }
+
+  /* ── Mobile layout ────────────────────────────────────────────────────────── */
+  @media (max-width: 768px) {
+    html, body { overflow: auto; height: auto; }
+    #app { position: relative; min-height: 100dvh; overflow: auto; }
+
+    /* Shrink ring */
+    .ring-wrap { width: 260px; height: 260px; top: 160px; transform: translate(-50%, 0); }
+    @keyframes ring-in {
+      from { opacity: 0; transform: translate(-50%, 0) scale(0.94); }
+      to   { opacity: 1; transform: translate(-50%, 0) scale(1); }
+    }
+
+    /* Center label aligned with ring center */
+    .center-label { top: 290px; transform: translate(-50%, -50%); }
+    .center-label .name { font-size: 26px; }
+    .center-label .status { font-size: 9px; }
+
+    /* Hide desktop corners */
+    .corner.tl, .corner.tr, .corner.bl { display: none; }
+    .corner.br { font-size: 9px; bottom: auto; top: 14px; right: 14px; letter-spacing: 0.12em; opacity: 1; animation: none; }
+
+    /* Top badge smaller */
+    .top-badge { font-size: 9px; padding: 5px 12px; top: 14px; }
+
+    /* Panels — stacked, full width, relative not absolute */
+    .panel {
+      position: relative !important;
+      left: auto !important; top: auto !important;
+      width: calc(100% - 24px) !important;
+      height: auto !important;
+      margin: 0 12px 12px;
+    }
+    .panel-head { cursor: default; }
+    .panel-head .drag-hint { display: none; }
+    .panel-resize { display: none; }
+    .panel-body { overflow: visible; }
+
+    /* Conv list taller on mobile */
+    .conv-list { max-height: 280px; flex: 0 0 auto; }
+
+    /* Input row bigger touch targets */
+    .conv-input { font-size: 16px; padding: 12px 14px; } /* 16px prevents iOS zoom */
+    .conv-send { padding: 12px 18px; font-size: 10px; }
+
+    /* Dock — full width, bottom fixed */
+    .dock {
+      bottom: 0; left: 0; right: 0; transform: none;
+      border-radius: 0; width: 100%;
+      justify-content: space-around;
+      padding: 10px 8px;
+      padding-bottom: max(10px, env(safe-area-inset-bottom));
+    }
+    @keyframes dock-in { to { opacity: 1; transform: none; } }
+    .dock-btn { flex: 1; justify-content: center; padding: 10px 6px; font-size: 9px; letter-spacing: 0.16em; }
+
+    /* Mobile panel stack container */
+    .mobile-panels {
+      display: flex; flex-direction: column;
+      padding-top: 450px; /* room for ring at top: 160px + 260px height + 30px gap */
+      padding-bottom: 80px; /* room for dock */
+    }
+
+    .tiny-warn { display: none; }
+  }
+  }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+const STATE_LABELS = { standby: "STANDBY", listening: "LISTENING", thinking: "THINKING", speaking: "SPEAKING" };
+
+const AGENTS_LIST = [
+  { id: "career",   name: "CAREER" },
+  { id: "projects", name: "PROJECTS" },
+  { id: "iris",     name: "IRIS" },
+  { id: "memory",   name: "MEMORY" },
+  { id: "search",   name: "BRAVE SEARCH" },
+  { id: "calendar", name: "CALENDAR" },
+  { id: "obsidian", name: "OBSIDIAN" },
+  { id: "general",  name: "GENERAL" },
+];
+
+// ── Clock ──────────────────────────────────────────────────────────────────────
+function useClock() {
+  const [now, setNow] = useState(new Date());
+  const start = useRef(Date.now());
+  useEffect(() => { const id = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(id); }, []);
+  const pad = n => String(n).padStart(2, "0");
+  const h12 = ((now.getHours() + 11) % 12) + 1;
+  const ap = now.getHours() >= 12 ? "PM" : "AM";
+  const time = `${pad(h12)}:${pad(now.getMinutes())}:${pad(now.getSeconds())} ${ap}`;
+  const upSec = Math.floor((Date.now() - start.current) / 1000);
+  const uptime = `${pad(Math.floor(upSec/3600))}:${pad(Math.floor((upSec%3600)/60))}:${pad(upSec%60)}`;
+  return { time, uptime };
+}
+
+// ── WebSocket hook ─────────────────────────────────────────────────────────────
+function useJarvisWS(handlers) {
+  const [wsState, setWsState] = useState("disconnected"); // connected | disconnected | error
+  const wsRef = useRef(null);
+  const handlersRef = useRef(handlers);
+  handlersRef.current = handlers;
+
+  const connect = useCallback(() => {
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const url = `${proto}//${window.location.host}/ws`;
+    const ws = new WebSocket(url);
+    wsRef.current = ws;
+
+    ws.onopen = () => setWsState("connected");
+    ws.onclose = () => {
+      setWsState("disconnected");
+      setTimeout(connect, 2000); // auto-reconnect
+    };
+    ws.onerror = () => setWsState("error");
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        handlersRef.current(msg);
+      } catch {}
+    };
+  }, []);
+
+  useEffect(() => { connect(); return () => wsRef.current?.close(); }, [connect]);
+
+  const send = useCallback((data) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(data));
+    }
+  }, []);
+
+  return { wsState, send };
+}
+
+// ── Boot ───────────────────────────────────────────────────────────────────────
+function Boot({ onDone }) {
+  const [gone, setGone] = useState(false);
+  useEffect(() => {
+    const t1 = setTimeout(() => setGone(true), 3400);
+    const t2 = setTimeout(() => onDone(), 4300);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, []);
+  return (
+    <div className={`boot ${gone ? "gone" : ""}`}>
+      <div className="boot-glyph"></div>
+      <div className="boot-line l1">JARVIS · PHASE 5</div>
+      <div className="boot-line l2">INITIALIZING SUBSYSTEMS</div>
+      <div className="boot-line l3">ALL SYSTEMS NOMINAL</div>
+    </div>
+  );
+}
+
+// ── Ring ───────────────────────────────────────────────────────────────────────
+const Ring = ({ state }) => {
+  const cx = 260, cy = 260;
+  const R = { outer: 200, ticks: 180, main: 156, mid: 124, inner: 96, core: 68 };
+  const ticks = React.useMemo(() => {
+    const arr = [];
+    for (let i = 0; i < 60; i++) arr.push({ angle: (i*360)/60, len: i%5===0?8:4, opacity: i%5===0?0.55:0.18 });
+    return arr;
+  }, []);
+  const innerDashes = React.useMemo(() => { const arr=[]; for(let i=0;i<64;i++) arr.push((i*360)/64); return arr; }, []);
+  const pt = (r, a) => { const rad=(a-90)*Math.PI/180; return [cx+r*Math.cos(rad), cy+r*Math.sin(rad)]; };
+  const arc = (r, s, sw) => { const [x1,y1]=pt(r,s),[x2,y2]=pt(r,s+sw),la=sw>180?1:0; return `M ${x1} ${y1} A ${r} ${r} 0 ${la} 1 ${x2} ${y2}`; };
+  return (
+    <div className="ring-wrap">
+      <div className="ring-bloom" />
+      <svg className="ring-svg" viewBox="0 0 520 520" fill="none">
+        <defs>
+          <filter id="ring-glow" x="-30%" y="-30%" width="160%" height="160%">
+            <feGaussianBlur stdDeviation="3" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+          <radialGradient id="core-grad" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="rgb(var(--accent-rgb))" stopOpacity="0.04"/>
+            <stop offset="60%" stopColor="rgb(var(--accent-rgb))" stopOpacity="0.02"/>
+            <stop offset="100%" stopColor="rgb(var(--accent-rgb))" stopOpacity="0"/>
+          </radialGradient>
+        </defs>
+        <circle cx={cx} cy={cy} r={R.core+30} fill="url(#core-grad)"/>
+        <circle cx={cx} cy={cy} r={R.outer} stroke="rgb(var(--accent-rgb) / 0.18)" strokeWidth="0.75"/>
+        <g className="tick-rotate-cw">
+          {ticks.map((t,i) => { const [x1,y1]=pt(R.ticks-t.len/2,t.angle),[x2,y2]=pt(R.ticks+t.len/2,t.angle); return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="rgb(var(--accent-rgb))" strokeOpacity={t.opacity} strokeWidth={t.angle%30===0?1.2:0.75} strokeLinecap="round"/>; })}
+          {[0,90,180,270].map((deg,i) => { const [x,y]=pt(R.ticks,deg); return <circle key={i} cx={x} cy={y} r="2.4" fill="rgb(var(--accent-rgb))" fillOpacity="0.9"/>; })}
+        </g>
+        <g className="tick-rotate-ccw">
+          {[45,135,225,315].map((deg,i) => { const [x1,y1]=pt(R.main+6,deg),[x2,y2]=pt(R.main+18,deg); return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="rgb(var(--accent-rgb))" strokeOpacity="0.5" strokeWidth="1" strokeLinecap="round"/>; })}
+        </g>
+        <g filter="url(#ring-glow)">
+          {state==="standby" && <circle className="standby-pulse" cx={cx} cy={cy} r={R.main} stroke="rgb(var(--accent-rgb))" strokeOpacity="0.7" strokeWidth="1.25"/>}
+          {state==="listening" && <>
+            <circle cx={cx} cy={cy} r={R.main} stroke="rgb(var(--accent-rgb))" strokeOpacity="0.55" strokeWidth="1.25"/>
+            <g className="arc-listen-a"><path d={arc(R.main,0,36)} stroke="rgb(var(--accent-rgb))" strokeWidth="2" strokeLinecap="round" strokeOpacity="0.95"/></g>
+            <g className="arc-listen-b"><path d={arc(R.main,180,24)} stroke="rgb(var(--accent-rgb))" strokeWidth="1.5" strokeLinecap="round" strokeOpacity="0.7"/></g>
+          </>}
+          {state==="thinking" && <>
+            <g className="thinking-arc-a"><path d={arc(R.main,0,220)} stroke="rgb(var(--accent-rgb))" strokeWidth="1.5" strokeLinecap="round" strokeOpacity="0.9"/></g>
+            <g className="thinking-arc-b"><path d={arc(R.main,0,70)} stroke="rgb(var(--accent-rgb))" strokeWidth="1" strokeLinecap="round" strokeOpacity="0.5"/></g>
+            <g className="orbit-thinking"><circle cx={cx+R.main} cy={cy} r="3.5" fill="rgb(var(--accent-rgb))" fillOpacity="1"/><circle cx={cx+R.main} cy={cy} r="8" fill="rgb(var(--accent-rgb))" fillOpacity="0.18"/></g>
+          </>}
+          {state==="speaking" && <>
+            <circle cx={cx} cy={cy} r={R.main} stroke="rgb(var(--accent-rgb))" strokeOpacity="0.85" strokeWidth="1.5"/>
+            <circle className="wave-ring" cx={cx} cy={cy} r={R.main} stroke="rgb(var(--accent-rgb))" strokeOpacity="0.5" strokeWidth="1.2"/>
+            <circle className="wave-ring w2" cx={cx} cy={cy} r={R.main} stroke="rgb(var(--accent-rgb))" strokeOpacity="0.5" strokeWidth="1.2"/>
+            <circle className="wave-ring w3" cx={cx} cy={cy} r={R.main} stroke="rgb(var(--accent-rgb))" strokeOpacity="0.5" strokeWidth="1.2"/>
+          </>}
+        </g>
+        <circle cx={cx} cy={cy} r={R.mid} stroke="rgb(var(--accent-rgb) / 0.12)" strokeWidth="0.5"/>
+        {innerDashes.map((deg,i) => { const [x1,y1]=pt(R.inner,deg-1.2),[x2,y2]=pt(R.inner,deg+1.2); return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke="rgb(var(--accent-rgb))" strokeOpacity="0.32" strokeWidth="0.75" strokeLinecap="round"/>; })}
+        <circle cx={cx} cy={cy} r={R.core} stroke="rgb(var(--accent-rgb) / 0.15)" strokeWidth="0.5"/>
+      </svg>
+    </div>
+  );
+};
+
+// ── Panel shell ────────────────────────────────────────────────────────────────
+const Panel = ({ title, x, y, w, h, delayClass, children, onDrag, onResize, minW = 240, minH = 160, maxW = 900, maxH = 1200 }) => {
+  const ref = useRef(null);
+  const drag = useRef(null);
+  const resz = useRef(null);
+  const [resizing, setResizing] = useState(false);
+
+  // ── Drag ──
+  const startDrag = (clientX, clientY) => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    drag.current = { offX: clientX - rect.left, offY: clientY - rect.top };
+  };
+  const onMouseDown = (e) => {
+    startDrag(e.clientX, e.clientY);
+    const onMove = (ev) => { if (drag.current) onDrag(ev.clientX - drag.current.offX, ev.clientY - drag.current.offY); };
+    const onUp = () => { drag.current = null; window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+  const onTouchStart = (e) => {
+    const t = e.touches[0];
+    startDrag(t.clientX, t.clientY);
+    const onMove = (ev) => { if (drag.current) { ev.preventDefault(); const tt=ev.touches[0]; onDrag(tt.clientX - drag.current.offX, tt.clientY - drag.current.offY); } };
+    const onEnd = () => { drag.current = null; window.removeEventListener("touchmove", onMove); window.removeEventListener("touchend", onEnd); };
+    window.addEventListener("touchmove", onMove, { passive: false });
+    window.addEventListener("touchend", onEnd);
+  };
+
+  // ── Resize (bottom-right grip) ──
+  const startResize = (clientX, clientY) => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    resz.current = { startX: clientX, startY: clientY, startW: rect.width, startH: rect.height };
+  };
+  const applyResize = (clientX, clientY) => {
+    if (!resz.current || !onResize) return;
+    const nw = Math.min(maxW, Math.max(minW, resz.current.startW + (clientX - resz.current.startX)));
+    const nh = Math.min(maxH, Math.max(minH, resz.current.startH + (clientY - resz.current.startY)));
+    onResize(nw, nh);
+  };
+  const onResizeMouseDown = (e) => {
+    e.preventDefault(); e.stopPropagation();
+    startResize(e.clientX, e.clientY);
+    setResizing(true);
+    const onMove = (ev) => applyResize(ev.clientX, ev.clientY);
+    const onUp = () => {
+      resz.current = null; setResizing(false);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+  const onResizeTouchStart = (e) => {
+    e.stopPropagation();
+    const t = e.touches[0];
+    startResize(t.clientX, t.clientY);
+    setResizing(true);
+    const onMove = (ev) => { ev.preventDefault(); const tt = ev.touches[0]; applyResize(tt.clientX, tt.clientY); };
+    const onEnd = () => {
+      resz.current = null; setResizing(false);
+      window.removeEventListener("touchmove", onMove);
+      window.removeEventListener("touchend", onEnd);
+    };
+    window.addEventListener("touchmove", onMove, { passive: false });
+    window.addEventListener("touchend", onEnd);
+  };
+
+  const style = { left: x, top: y, width: w };
+  if (h) style.height = h;
+
+  return (
+    <div ref={ref} className={`panel ${delayClass||""} ${resizing ? "resizing" : ""}`} style={style}>
+      <div className="corner-br-a"></div><div className="corner-br-b"></div>
+      <div className="panel-head" onMouseDown={onMouseDown} onTouchStart={onTouchStart}>
+        <div className="panel-title"><span className="glyph"></span>{title}</div>
+        <div className="drag-hint">DRAG</div>
+      </div>
+      <div className="panel-body">{children}</div>
+      {onResize && (
+        <div
+          className="panel-resize"
+          onMouseDown={onResizeMouseDown}
+          onTouchStart={onResizeTouchStart}
+          title="Drag to resize"
+        ></div>
+      )}
+    </div>
+  );
+};
+
+// ── System panel ───────────────────────────────────────────────────────────────
+const SystemPanel = ({ pos, size, onDrag, onResize, uptime, time, model, mode, wsState, onToggleModel, onToggleMode, visible }) => {
+  if (!visible) return null;
+  return (
+  <Panel title="SYSTEM" x={pos.x} y={pos.y} w={size.w} h={size.h} onDrag={onDrag} onResize={onResize}
+         minW={260} minH={260} maxW={520} maxH={700} delayClass="delay-1">
+    <div className="sys-row"><span className="k">UPTIME</span><span className="v">{uptime}</span></div>
+    <div className="sys-row"><span className="k">LOCAL TIME</span><span className="v">{time}</span></div>
+    <div className="sys-row"><span className="k">MODEL</span><span className="v accent clickable" onClick={onToggleModel}>{model === "sonnet" ? "SONNET 4.6" : "HAIKU 4.5"}</span></div>
+    <div className="sys-row"><span className="k">MIC</span><span className="v ok">ACTIVE</span></div>
+    <div className="sys-row"><span className="k">SEARCH</span><span className="v">BRAVE</span></div>
+    <div className="sys-row"><span className="k">PHASE</span><span className="v">5</span></div>
+    <div className="sys-row"><span className="k">MEMORY</span><span className="v ok">LOADED</span></div>
+    <div className="sys-row"><span className="k">MODE</span><span className={`v clickable ${mode === "silent" ? "warn" : "ok"}`} onClick={onToggleMode}>{mode === "silent" ? "SILENT" : "VOICE"}</span></div>
+    <div className="sys-row"><span className="k">BACKEND</span><span className={`v ${wsState === "connected" ? "ok" : "warn"}`}>{wsState.toUpperCase()}</span></div>
+  </Panel>
+  );
+};
+
+// ── Conversation panel (with input embedded) ───────────────────────────────────
+const ConversationPanel = ({ pos, size, onDrag, onResize, entries, onSend, visible }) => {
+  if (!visible) return null;
+  const listRef = useRef(null);
+  const [val, setVal] = useState("");
+  useEffect(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; }, [entries.length]);
+  const submit = () => { if (val.trim()) { onSend(val.trim()); setVal(""); } };
+  const onKey = (e) => { if (e.key === "Enter") submit(); };
+  return (
+    <Panel title="CONVERSATION" x={pos.x} y={pos.y} w={size.w} h={size.h} onDrag={onDrag} onResize={onResize}
+           minW={320} minH={260} maxW={900} maxH={1100} delayClass="delay-2">
+      <div className="conv-list" ref={listRef}>
+        {entries.length === 0 && <div className="conv-empty">Waiting for input...</div>}
+        {entries.map((e, i) => (
+          <div key={i} className={`conv-entry ${e.role}`}>
+            <div className="conv-meta">
+              <span className="role">{e.role === "jarvis" ? "JARVIS" : "EDWARD"}</span>
+              <span>·</span><span>{e.ts}</span>
+            </div>
+            <div className="conv-text">{e.text}</div>
+          </div>
+        ))}
+      </div>
+      <div className="conv-input-row">
+        <input
+          className="conv-input"
+          placeholder="Type a message..."
+          value={val}
+          onChange={e => setVal(e.target.value)}
+          onKeyDown={onKey}
+        />
+        <button className="conv-send" onClick={submit}>SEND</button>
+      </div>
+    </Panel>
+  );
+};
+
+// ── Agent panel ────────────────────────────────────────────────────────────────
+const AgentPanel = ({ pos, size, onDrag, onResize, active, visible }) => {
+  if (!visible) return null;
+  return (
+  <Panel title="AGENTS" x={pos.x} y={pos.y} w={size.w} h={size.h} onDrag={onDrag} onResize={onResize}
+         minW={240} minH={200} maxW={480} maxH={700} delayClass="delay-3">
+    {AGENTS_LIST.map(a => (
+      <div key={a.id} className={`agent-row ${active === a.id ? "active" : ""}`}>
+        <span className="pip"></span>
+        <span className="name">{a.name}</span>
+        <span className="ts">{active === a.id ? "RUN" : "—"}</span>
+      </div>
+    ))}
+  </Panel>
+  );
+};
+
+// ── Usage panel ────────────────────────────────────────────────────────────────
+const UsagePanel = ({ pos, size, onDrag, onResize, usage, visible }) => {
+  if (!visible) return null;
+  const claudePct = usage?.claude_pct ?? 0;
+  const elPct     = usage?.el_pct ?? 0;
+  const month     = usage?.month ?? "—";
+  return (
+    <Panel title="USAGE" x={pos.x} y={pos.y} w={size.w} h={size.h} onDrag={onDrag} onResize={onResize}
+           minW={240} minH={220} maxW={500} maxH={700} delayClass="delay-4">
+      <div className="usage-card">
+        <div className="label"><span>CLAUDE API</span><span>{claudePct}%</span></div>
+        <div className="value">${usage?.claude_usd?.toFixed(2) ?? "0.00"}<span style={{fontSize:13,color:"var(--ink-dim)",marginLeft:6}}>/ ${usage?.claude_budget?.toFixed(0) ?? "20"}</span></div>
+        <div className="bar"><i style={{width: claudePct + "%"}}></i></div>
+        <div className="sub">${((usage?.claude_budget ?? 20) - (usage?.claude_usd ?? 0)).toFixed(2)} REMAINING · {month}</div>
+      </div>
+      <div className="usage-card">
+        <div className="label"><span>ELEVENLABS</span><span>{elPct}%</span></div>
+        <div className="value">{(usage?.el_chars_used ?? 0).toLocaleString()}<span style={{fontSize:13,color:"var(--ink-dim)",marginLeft:6}}>/ {(usage?.el_chars_limit ?? 10000).toLocaleString()}</span></div>
+        <div className="bar"><i style={{width: elPct + "%"}}></i></div>
+        <div className="sub">{(usage?.el_chars_remaining ?? 0).toLocaleString()} CHARS REMAINING</div>
+      </div>
+    </Panel>
+  );
+};
+
+// ── Dock ───────────────────────────────────────────────────────────────────────
+const DOCK_BUTTONS = [
+  { key: "system",       label: "SYSTEM" },
+  { key: "conversation", label: "CONVERSATION" },
+  { key: "agents",       label: "AGENTS" },
+  { key: "usage",        label: "USAGE" },
+  { key: "spotify",      label: "SPOTIFY" },
+];
+const Dock = ({ panelsOn, onToggle }) => (
+  <div className="dock" role="toolbar" aria-label="Panel visibility">
+    {DOCK_BUTTONS.map((b, i) => (
+      <React.Fragment key={b.key}>
+        <button
+          className={`dock-btn ${panelsOn[b.key] ? "on" : ""}`}
+          onClick={() => onToggle(b.key)}
+          aria-pressed={panelsOn[b.key]}
+          title={`${panelsOn[b.key] ? "Hide" : "Show"} ${b.label.toLowerCase()} panel`}
+        >
+          <span className="pip"></span>{b.label}
+        </button>
+      </React.Fragment>
+    ))}
+  </div>
+);
+
+// ── Spotify Panel ──────────────────────────────────────────────────────────────
+const SpotifyPanel = ({ pos, size, onDrag, onResize, visible }) => {
+  const [track, setTrack] = React.useState(null);
+  const [isPlaying, setIsPlaying] = React.useState(false);
+
+  const fetchNowPlaying = React.useCallback(async () => {
+    try {
+      const res = await fetch("/spotify/now-playing");
+      if (!res.ok) { setTrack(null); return; }
+      const data = await res.json();
+      setTrack(data);
+      setIsPlaying(data?.is_playing ?? false);
+    } catch { setTrack(null); }
+  }, []);
+
+  React.useEffect(() => {
+    if (!visible) return;
+    fetchNowPlaying();
+    const id = setInterval(fetchNowPlaying, 5000);
+    return () => clearInterval(id);
+  }, [visible, fetchNowPlaying]);
+
+  const control = async (action) => {
+    try {
+      await fetch(`/spotify/${action}`, { method: "POST" });
+      setTimeout(fetchNowPlaying, 300);
+    } catch {}
+  };
+
+  const fmtTime = (ms) => {
+    const s = Math.floor(ms / 1000);
+    return `${Math.floor(s/60)}:${String(s%60).padStart(2,"0")}`;
+  };
+
+  if (!visible) return null;
+
+  return (
+    <Panel title="NOW PLAYING" x={pos.x} y={pos.y} w={size.w} h={size.h} onDrag={onDrag} onResize={onResize}
+           minW={220} minH={300} maxW={480} maxH={780} delayClass="delay-4">
+      {!track ? (
+        <div className="spotify-idle">NOTHING PLAYING</div>
+      ) : (
+        <>
+          {track.art ? (
+            <img className="spotify-art" src={track.art} alt={track.album} />
+          ) : (
+            <div className="spotify-art-placeholder">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="rgb(var(--accent-rgb))">
+                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/>
+              </svg>
+            </div>
+          )}
+          <div className="spotify-track" title={track.name}>{track.name}</div>
+          <div className="spotify-artist" title={track.artist}>{track.artist}</div>
+          {track.duration > 0 && (
+            <div className="spotify-progress">
+              <div className="spotify-bar">
+                <div className="spotify-bar-fill" style={{width: `${(track.progress/track.duration)*100}%`}}></div>
+              </div>
+              <div className="spotify-times">
+                <span>{fmtTime(track.progress)}</span>
+                <span>{fmtTime(track.duration)}</span>
+              </div>
+            </div>
+          )}
+          <div className="spotify-controls">
+            <button className="spotify-btn" onClick={() => control("previous")} title="Previous">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+            </button>
+            <button className={`spotify-btn play`} onClick={() => control(isPlaying ? "pause" : "play")} title={isPlaying ? "Pause" : "Play"}>
+              {isPlaying ? (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+              )}
+            </button>
+            <button className="spotify-btn" onClick={() => control("next")} title="Next">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zm2-8.14L11.03 12 8 14.14V9.86zM16 6h2v12h-2z"/></svg>
+            </button>
+          </div>
+        </>
+      )}
+    </Panel>
+  );
+};
+
+
+// ── Timer Panel ────────────────────────────────────────────────────────────────
+const TimerPanel = ({ id, message, totalSeconds, startedAt, onDone }) => {
+  const RADIUS = 34;
+  const CIRC   = 2 * Math.PI * RADIUS;
+
+  const [remaining, setRemaining] = React.useState(() =>
+    Math.max(0, totalSeconds - Math.floor((Date.now() - startedAt) / 1000))
+  );
+  const [done, setDone] = React.useState(false);
+
+  React.useEffect(() => {
+    if (done) return;
+    const id = setInterval(() => {
+      setRemaining(r => {
+        if (r <= 1) {
+          clearInterval(id);
+          setDone(true);
+          setTimeout(() => onDone(), 1800);
+          return 0;
+        }
+        return r - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [done]);
+
+  const pct      = remaining / totalSeconds;
+  const offset   = CIRC * (1 - pct);
+  const expiring = remaining <= 60 && !done;
+
+  const fmt = (s) => {
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    if (h > 0) return `${h}:${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`;
+    return `${String(m).padStart(2,"0")}:${String(sec).padStart(2,"0")}`;
+  };
+
+  return (
+    <div className={`timer-panel ${expiring ? "expiring" : ""} ${done ? "done" : ""}`}>
+      <div className="timer-header">
+        <span className="pip"></span>
+        <span className="timer-title">{message.toUpperCase()}</span>
+      </div>
+      <div className="timer-ring-wrap">
+        <svg className="timer-ring-svg" viewBox="0 0 80 80">
+          <circle className="timer-ring-bg" cx="40" cy="40" r={RADIUS}/>
+          <circle className="timer-ring-fg" cx="40" cy="40" r={RADIUS}
+            strokeDasharray={CIRC}
+            strokeDashoffset={done ? CIRC : offset}
+          />
+        </svg>
+        <div className="timer-countdown">{done ? "✓" : fmt(remaining)}</div>
+      </div>
+      <div className="timer-label">{done ? "DONE" : "REMAINING"}</div>
+    </div>
+  );
+};
+
+
+// ── App ────────────────────────────────────────────────────────────────────────
+function App() {
+  const skipBoot = new URLSearchParams(window.location.search).has("skipBoot");
+  const [booted, setBooted] = useState(skipBoot);
+  const [state, setState] = useState("standby");
+  const [model, setModel] = useState("haiku");
+  const [mode, setMode] = useState("voice");
+
+  const onToggleModel = () => {
+    const next = model === "haiku" ? "sonnet" : "haiku";
+    setModel(next);
+    send({ type: "set_model", value: next });
+  };
+
+  const onToggleMode = () => {
+    const next = mode === "voice" ? "silent" : "voice";
+    setMode(next);
+    send({ type: "set_mode", value: next });
+  };
+  const [conv, setConv] = useState([]);
+  const [activeAgent, setActiveAgent] = useState(null);
+  const [usage, setUsage] = useState(null);
+  const [timers, setTimers] = useState([]);
+  const { time, uptime } = useClock();
+
+  const [positions, setPositions] = useState(() => {
+    try {
+      const saved = localStorage.getItem("jarvis_panel_positions");
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {
+      system:       { x: 32, y: 70 },
+      conversation: { x: 32, y: 360 },
+      agents:       { x: 32, y: 820 },
+      usage:        { x: 1600, y: 70 },
+      spotify:      { x: 1600, y: 320 },
+    };
+  });
+  const DEFAULT_SIZES = {
+    system:       { w: 300, h: 380 },
+    conversation: { w: 380, h: 440 },
+    agents:       { w: 300, h: 360 },
+    usage:        { w: 280, h: 320 },
+    spotify:      { w: 240, h: 460 },
+  };
+  const [sizes, setSizes] = useState(() => {
+    try {
+      const saved = localStorage.getItem("jarvis_panel_sizes");
+      if (saved) return { ...DEFAULT_SIZES, ...JSON.parse(saved) };
+    } catch {}
+    return DEFAULT_SIZES;
+  });
+  const resizePanel = (key) => (w, h) => {
+    setSizes(s => {
+      const next = { ...s, [key]: { w, h } };
+      try { localStorage.setItem("jarvis_panel_sizes", JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
+  const [panelsOn, setPanelsOn] = useState(() => {
+    try {
+      const saved = localStorage.getItem("jarvis_panels_open");
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return { system: true, conversation: true, agents: false, usage: false, spotify: false };
+  });
+  const togglePanel = (key) => setPanelsOn(p => {
+    const next = { ...p, [key]: !p[key] };
+    try { localStorage.setItem("jarvis_panels_open", JSON.stringify(next)); } catch {}
+    return next;
+  });
+  useEffect(() => {
+    const w = window.innerWidth, h = window.innerHeight;
+    const mobile = w <= 768;
+    setIsMobile(mobile);
+    if (!mobile) {
+      // Only set defaults if no saved positions
+      const saved = localStorage.getItem("jarvis_panel_positions");
+      if (!saved) {
+        setPositions({
+          system:       { x: 32, y: 70 },
+          conversation: { x: 32, y: 360 },
+          agents:       { x: 32, y: h - 290 },
+          usage:        { x: w - 312, y: 70 },
+          spotify:      { x: w - 312, y: 320 },
+        });
+      }
+    }
+    const onResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const movePanel = (key) => (x, y) => {
+    setPositions(p => {
+      const next = { ...p, [key]: { x, y } };
+      try { localStorage.setItem("jarvis_panel_positions", JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
+  const ts = () => { const n=new Date(),h=((n.getHours()+11)%12)+1,m=n.getMinutes(),ap=n.getHours()>=12?"PM":"AM"; return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")} ${ap}`; };
+
+  const handleWS = useCallback((msg) => {
+    switch (msg.type) {
+      case "status":      setState(msg.value); break;
+      case "model":       setModel(msg.value); break;
+      case "agent":       setActiveAgent(msg.value || null); break;
+      case "user_msg":    setConv(c => [...c, { role: "user",   text: msg.text, ts: ts() }]); break;
+      case "jarvis_msg":  setConv(c => [...c, { role: "jarvis", text: msg.text, ts: ts() }]); break;
+      case "clear_log":   setConv([]); break;
+      case "usage":       setUsage(msg); break;
+      case "set_timer":
+        setTimers(t => [...t, {
+          id:           msg.id || Date.now(),
+          message:      msg.message,
+          totalSeconds: msg.seconds,
+          startedAt:    Date.now(),
+        }]);
+        break;
+    }
+  }, []);
+
+  const { wsState, send } = useJarvisWS(handleWS);
+
+  const onSilentSend = (text) => {
+    setConv(c => [...c, { role: "user", text, ts: ts() }]);
+    send({ type: "silent_input", text });
+  };
+
+  return (
+    <div id="app" data-theme={model} data-state={state}>
+      <div className="bg"></div>
+      <div className="bg-grid"></div>
+      <div className="bg-grid-fine"></div>
+      <div className="bg-noise"></div>
+
+      {!booted && <Boot onDone={() => setBooted(true)} />}
+
+      {booted && (<>
+        <div className={`top-badge ${model === "sonnet" ? "show" : ""}`}>
+          <span className="pip"></span>SONNET 4.6 ENGAGED
+        </div>
+
+        <div className="corner tl">
+          <span>JARVIS · PHASE 5</span>
+          <span className="corner-sep">·</span>
+          <span className={`backend-pill ${wsState}`} title={`Backend ${wsState}`}>
+            <span className="dot"></span>BACKEND {wsState.toUpperCase()}
+          </span>
+        </div>
+        <div className="corner tr">UPTIME · {uptime}</div>
+        <div className="corner bl">EDWARD HADDAD · MAC STUDIO M4 MAX</div>
+        <div className="corner br">{time}</div>
+
+
+
+        <Ring state={state} />
+        <div className="center-label">
+          <div className="name">JARVIS</div>
+          <div className="status">
+            <span className="dot"></span>
+            <span>{STATE_LABELS[state]}</span>
+          </div>
+        </div>
+
+        <div className={isMobile ? "mobile-panels" : ""}>
+          <SystemPanel       pos={positions.system}       size={sizes.system}       onDrag={movePanel("system")}       onResize={resizePanel("system")}       uptime={uptime} time={time} model={model} mode={mode} wsState={wsState} onToggleModel={onToggleModel} onToggleMode={onToggleMode} visible={panelsOn.system} />
+          <ConversationPanel pos={positions.conversation} size={sizes.conversation} onDrag={movePanel("conversation")} onResize={resizePanel("conversation")} entries={conv} onSend={onSilentSend} visible={panelsOn.conversation} />
+          <AgentPanel        pos={positions.agents}       size={sizes.agents}       onDrag={movePanel("agents")}       onResize={resizePanel("agents")}       active={activeAgent} visible={panelsOn.agents} />
+          <UsagePanel        pos={positions.usage}        size={sizes.usage}        onDrag={movePanel("usage")}        onResize={resizePanel("usage")}        usage={usage} visible={panelsOn.usage} />
+          <SpotifyPanel      pos={positions.spotify}      size={sizes.spotify}      onDrag={movePanel("spotify")}      onResize={resizePanel("spotify")}      visible={panelsOn.spotify} />
+        </div>
+
+        <Dock panelsOn={panelsOn} onToggle={togglePanel} />
+
+        {timers.length > 0 && (
+          <div className="timer-stack">
+            {timers.map(t => (
+              <TimerPanel
+                key={t.id}
+                {...t}
+                onDone={() => setTimers(ts => ts.filter(x => x.id !== t.id))}
+              />
+            ))}
+          </div>
+        )}
+
+        <div className="tiny-warn">DESIGNED FOR FULLSCREEN · 1920 × 1080</div>
+      </>)}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
