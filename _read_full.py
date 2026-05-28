@@ -1,6 +1,7 @@
 import sys
+from pathlib import Path
 
-path = sys.argv[1]
+path = Path(sys.argv[1]).expanduser()
 with open(path, "r", encoding="utf-8") as f:
     content = f.read()
 
