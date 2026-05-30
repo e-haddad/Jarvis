@@ -126,12 +126,20 @@ async def test_agent_emit():
     async def _run():
         emit_agents_clear()
         await asyncio.sleep(0.5)
-        emit_agent_start("projects")
-        emit_agent_start("finance")
-        await asyncio.sleep(3)
-        emit_agent_done("projects", 2.8)
-        await asyncio.sleep(1.5)
-        emit_agent_done("finance", 4.1)
+        agents = ["researcher", "architect", "coder", "career", "projects", "iris", "finance", "general"]
+        for agent in agents:
+            print(f"[Test] Emitting agent_start for: {agent}")
+            emit_agent_start(agent)
+            await asyncio.sleep(0.1)
+        await asyncio.sleep(8)
+        for agent, elapsed in [
+            ("researcher", 7.2), ("finance", 5.1), ("career", 8.4),
+            ("iris", 4.8), ("projects", 9.1), ("coder", 6.3),
+            ("architect", 7.8), ("general", 3.2)
+        ]:
+            print(f"[Test] Emitting agent_done for: {agent}")
+            emit_agent_done(agent, elapsed)
+            await asyncio.sleep(0.8)
     asyncio.create_task(_run())
     return {"status": "ok"}
 

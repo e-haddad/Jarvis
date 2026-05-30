@@ -1456,6 +1456,654 @@ const TimerPanel = ({ id, message, totalSeconds, startedAt, onDone }) => {
 };
 
 
+// ── Avengers Animation System ─────────────────────────────────────────────────
+const PIXEL_SCALE = 3; // Each pixel in 16x16 grid = 3 actual pixels (48x48 total)
+
+// Agent to Avenger mapping
+const AGENT_TO_AVENGER = {
+  'researcher':  'SPIDER_MAN',
+  'architect':   'IRON_MAN',
+  'coder':       'IRON_MAN',
+  'career':      'CAPTAIN_AMERICA',
+  'projects':    'THOR',
+  'iris':        'BLACK_WIDOW',
+  'finance':     'HAWKEYE',
+  'general':     'HULK',
+};
+
+// Pixel art sprites (16x16 grid, each pixel is a hex color or null for transparent)
+const AVENGER_SPRITES = {
+  IRON_MAN: [
+    [null,null,null,null,null,"#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700",null,null,null,null,null],
+    [null,null,null,null,"#FFD700","#FFD700","#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0","#FFD700","#FFD700",null,null,null,null],
+    [null,null,null,"#FFD700","#C0C0C0","#00FFFF","#00FFFF","#C0C0C0","#C0C0C0","#00FFFF","#00FFFF","#C0C0C0","#FFD700",null,null,null],
+    [null,null,"#DC143C","#C0C0C0","#C0C0C0","#00FFFF","#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0","#00FFFF","#C0C0C0","#C0C0C0","#DC143C",null,null],
+    [null,"#DC143C","#DC143C","#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0","#FFD700","#FFD700","#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0","#DC143C","#DC143C",null],
+    [null,"#DC143C","#DC143C","#C0C0C0","#C0C0C0","#C0C0C0","#FFD700","#00FFFF","#00FFFF","#FFD700","#C0C0C0","#C0C0C0","#C0C0C0","#DC143C","#DC143C",null],
+    [null,"#DC143C","#DC143C","#DC143C","#C0C0C0","#C0C0C0","#FFD700","#FFD700","#FFD700","#FFD700","#C0C0C0","#C0C0C0","#DC143C","#DC143C","#DC143C",null],
+    [null,null,"#DC143C","#DC143C","#C0C0C0","#C0C0C0","#C0C0C0","#FFD700","#FFD700","#C0C0C0","#C0C0C0","#C0C0C0","#DC143C","#DC143C",null,null],
+    [null,null,null,"#DC143C","#DC143C","#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0","#DC143C","#DC143C",null,null,null],
+    [null,null,null,null,"#DC143C","#DC143C","#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0","#DC143C","#DC143C",null,null,null,null],
+    [null,null,null,null,null,"#DC143C","#DC143C","#C0C0C0","#C0C0C0","#DC143C","#DC143C",null,null,null,null,null],
+    [null,null,null,null,null,"#FFD700","#DC143C","#DC143C","#DC143C","#DC143C","#FFD700",null,null,null,null,null],
+    [null,null,null,null,"#FFD700","#FFD700","#DC143C","#DC143C","#DC143C","#DC143C","#FFD700","#FFD700",null,null,null,null],
+    [null,null,null,"#FFD700","#FFD700","#DC143C","#DC143C",null,null,"#DC143C","#DC143C","#FFD700","#FFD700",null,null,null],
+    [null,null,"#FFD700","#FFD700","#DC143C","#DC143C",null,null,null,null,"#DC143C","#DC143C","#FFD700","#FFD700",null,null],
+    [null,null,"#FFD700","#FFD700","#DC143C",null,null,null,null,null,null,"#DC143C","#FFD700","#FFD700",null,null],
+  ],
+  THOR: [
+    [null,null,null,null,null,"#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700",null,null,null,null,null],
+    [null,null,null,null,"#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700",null,null,null,null],
+    [null,null,null,"#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700",null,null,null],
+    [null,null,"#0000FF","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#0000FF",null,null],
+    [null,"#0000FF","#0000FF","#FFD700","#FFD700","#FFD700","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFD700","#FFD700","#FFD700","#0000FF","#0000FF",null],
+    ["#0000FF","#0000FF","#C0C0C0","#FFE4B5","#FFE4B5","#FFE4B5","#000000","#FFE4B5","#FFE4B5","#000000","#FFE4B5","#FFE4B5","#FFE4B5","#C0C0C0","#0000FF","#0000FF"],
+    ["#0000FF","#C0C0C0","#C0C0C0","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#C0C0C0","#C0C0C0","#0000FF"],
+    [null,"#C0C0C0","#C0C0C0","#FFE4B5","#FFE4B5","#FFE4B5","#FF0000","#FFE4B5","#FFE4B5","#FF0000","#FFE4B5","#FFE4B5","#FFE4B5","#C0C0C0","#C0C0C0",null],
+    [null,null,"#C0C0C0","#C0C0C0","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#C0C0C0","#C0C0C0",null,null],
+    [null,null,null,"#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0","#FFE4B5","#FFE4B5","#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0",null,null,null],
+    [null,null,null,null,"#0000FF","#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0","#0000FF",null,null,null,null],
+    [null,null,null,null,"#0000FF","#0000FF","#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0","#0000FF","#0000FF",null,null,null,null],
+    [null,null,null,null,null,"#0000FF","#0000FF","#C0C0C0","#C0C0C0","#0000FF","#0000FF",null,null,null,null,null],
+    [null,null,null,null,null,"#0000FF","#0000FF",null,null,"#0000FF","#0000FF",null,null,null,null,null],
+    [null,null,null,null,null,"#0000FF","#0000FF",null,null,"#0000FF","#0000FF",null,null,null,null,null],
+    [null,null,null,null,null,"#696969","#0000FF",null,null,"#0000FF","#696969",null,null,null,null,null],
+  ],
+  HULK: [
+    [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+    [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
+    [null,null,null,null,"#388E3C","#388E3C","#388E3C","#388E3C","#388E3C","#388E3C","#388E3C","#388E3C",null,null,null,null],
+    [null,null,null,"#388E3C","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#388E3C",null,null,null],
+    [null,null,"#388E3C","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#388E3C",null,null],
+    [null,null,"#4CAF50","#4CAF50","#FFFFFF","#FFFFFF","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#FFFFFF","#FFFFFF","#4CAF50","#4CAF50",null,null],
+    [null,null,"#4CAF50","#4CAF50","#388E3C","#388E3C","#388E3C","#388E3C","#388E3C","#388E3C","#388E3C","#388E3C","#4CAF50","#4CAF50",null,null],
+    [null,"#388E3C","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#388E3C",null],
+    ["#388E3C","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#388E3C"],
+    ["#388E3C","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#388E3C"],
+    [null,"#388E3C","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#388E3C",null],
+    [null,"#7B1FA2","#388E3C","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#388E3C","#7B1FA2",null],
+    [null,"#7B1FA2","#7B1FA2","#388E3C","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#388E3C","#7B1FA2","#7B1FA2",null],
+    [null,null,"#7B1FA2","#7B1FA2","#388E3C","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#388E3C","#7B1FA2","#7B1FA2",null,null],
+    [null,null,null,"#7B1FA2","#7B1FA2","#388E3C","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#388E3C","#7B1FA2","#7B1FA2",null,null,null],
+    [null,null,null,null,"#7B1FA2","#7B1FA2","#388E3C","#388E3C","#388E3C","#388E3C","#7B1FA2","#7B1FA2",null,null,null,null],
+  ],
+  CAPTAIN_AMERICA: [
+    [null,null,null,null,null,"#0000FF","#0000FF","#0000FF","#0000FF","#0000FF","#0000FF",null,null,null,null,null],
+    [null,null,null,null,"#0000FF","#0000FF","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#0000FF","#0000FF",null,null,null,null],
+    [null,null,null,"#0000FF","#FFE4B5","#FFE4B5","#000000","#FFE4B5","#FFE4B5","#000000","#FFE4B5","#FFE4B5","#0000FF",null,null,null],
+    [null,null,"#0000FF","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#0000FF",null,null],
+    [null,"#0000FF","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FF0000","#FFE4B5","#FFE4B5","#FF0000","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#0000FF",null],
+    [null,"#0000FF","#0000FF","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#0000FF","#0000FF",null],
+    [null,null,"#0000FF","#0000FF","#0000FF","#0000FF","#0000FF","#FFE4B5","#FFE4B5","#0000FF","#0000FF","#0000FF","#0000FF","#0000FF",null,null],
+    [null,null,null,"#0000FF","#0000FF","#0000FF","#0000FF","#0000FF","#0000FF","#0000FF","#0000FF","#0000FF","#0000FF",null,null,null],
+    [null,"#DC143C","#DC143C","#DC143C","#0000FF","#0000FF","#0000FF","#0000FF","#0000FF","#0000FF","#0000FF","#0000FF","#DC143C","#DC143C","#DC143C",null],
+    ["#DC143C","#DC143C","#FFFFFF","#FFFFFF","#DC143C","#0000FF","#0000FF",null,null,"#0000FF","#0000FF","#DC143C","#FFFFFF","#FFFFFF","#DC143C","#DC143C"],
+    ["#DC143C","#FFFFFF","#FFFFFF","#DC143C","#DC143C","#0000FF","#0000FF",null,null,"#0000FF","#0000FF","#DC143C","#DC143C","#FFFFFF","#FFFFFF","#DC143C"],
+    ["#DC143C","#FFFFFF","#DC143C","#DC143C","#0000FF","#0000FF",null,null,null,null,"#0000FF","#0000FF","#DC143C","#DC143C","#FFFFFF","#DC143C"],
+    ["#DC143C","#DC143C","#DC143C","#0000FF","#0000FF",null,null,null,null,null,null,"#0000FF","#0000FF","#DC143C","#DC143C","#DC143C"],
+    [null,null,"#0000FF","#0000FF",null,null,null,null,null,null,null,null,"#0000FF","#0000FF",null,null],
+    [null,null,"#0000FF","#0000FF",null,null,null,null,null,null,null,null,"#0000FF","#0000FF",null,null],
+    [null,null,"#696969","#696969",null,null,null,null,null,null,null,null,"#696969","#696969",null,null],
+  ],
+  SPIDER_MAN: [
+    [null,null,null,null,null,"#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C",null,null,null,null,null],
+    [null,null,null,null,"#DC143C","#DC143C","#000000","#DC143C","#DC143C","#000000","#DC143C","#DC143C",null,null,null,null],
+    [null,null,null,"#DC143C","#000000","#FFFFFF","#FFFFFF","#000000","#000000","#FFFFFF","#FFFFFF","#000000","#DC143C",null,null,null],
+    [null,null,"#DC143C","#DC143C","#000000","#FFFFFF","#000000","#000000","#000000","#000000","#FFFFFF","#000000","#DC143C","#DC143C",null,null],
+    [null,"#DC143C","#DC143C","#DC143C","#DC143C","#000000","#000000","#DC143C","#DC143C","#000000","#000000","#DC143C","#DC143C","#DC143C","#DC143C",null],
+    [null,"#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#000000","#000000","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C",null],
+    [null,"#0000FF","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#0000FF",null],
+    [null,null,"#0000FF","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#0000FF",null,null],
+    [null,null,null,"#0000FF","#0000FF","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#0000FF","#0000FF",null,null,null],
+    [null,null,null,null,"#0000FF","#0000FF","#0000FF","#DC143C","#DC143C","#0000FF","#0000FF","#0000FF",null,null,null,null],
+    [null,null,null,null,null,"#0000FF","#0000FF","#0000FF","#0000FF","#0000FF","#0000FF",null,null,null,null,null],
+    [null,null,null,null,null,"#DC143C","#0000FF","#0000FF","#0000FF","#0000FF","#DC143C",null,null,null,null,null],
+    [null,null,null,null,"#DC143C","#DC143C","#0000FF",null,null,"#0000FF","#DC143C","#DC143C",null,null,null,null],
+    [null,null,null,"#DC143C","#DC143C","#0000FF",null,null,null,null,"#0000FF","#DC143C","#DC143C",null,null,null],
+    [null,null,"#DC143C","#DC143C",null,null,null,null,null,null,null,null,"#DC143C","#DC143C",null,null],
+    [null,null,"#DC143C","#DC143C",null,null,null,null,null,null,null,null,"#DC143C","#DC143C",null,null],
+  ],
+  BLACK_WIDOW: [
+    [null,null,null,null,null,"#000000","#000000","#000000","#000000","#000000","#000000",null,null,null,null,null],
+    [null,null,null,null,"#000000","#000000","#000000","#000000","#000000","#000000","#000000","#000000",null,null,null,null],
+    [null,null,null,"#000000","#FFE4B5","#FFE4B5","#000000","#FFE4B5","#FFE4B5","#000000","#FFE4B5","#FFE4B5","#000000",null,null,null],
+    [null,null,"#000000","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#000000",null,null],
+    [null,"#000000","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FF0000","#FFE4B5","#FFE4B5","#FF0000","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#000000",null],
+    [null,"#000000","#000000","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#000000","#000000",null],
+    [null,null,"#000000","#000000","#000000","#000000","#000000","#FFE4B5","#FFE4B5","#000000","#000000","#000000","#000000","#000000",null,null],
+    [null,null,null,"#000000","#000000","#000000","#000000","#000000","#000000","#000000","#000000","#000000","#000000",null,null,null],
+    [null,null,null,null,"#000000","#000000","#000000","#000000","#000000","#000000","#000000","#000000",null,null,null,null],
+    [null,null,null,null,null,"#000000","#000000","#000000","#000000","#000000","#000000",null,null,null,null,null],
+    [null,null,null,null,null,"#DC143C","#000000","#000000","#000000","#000000","#DC143C",null,null,null,null,null],
+    [null,null,null,null,"#DC143C","#DC143C","#000000",null,null,"#000000","#DC143C","#DC143C",null,null,null,null],
+    [null,null,null,"#DC143C","#DC143C","#000000","#000000",null,null,"#000000","#000000","#DC143C","#DC143C",null,null,null],
+    [null,null,"#DC143C","#DC143C","#000000","#000000",null,null,null,null,"#000000","#000000","#DC143C","#DC143C",null,null],
+    [null,null,"#000000","#000000","#000000",null,null,null,null,null,null,"#000000","#000000","#000000",null,null],
+    [null,null,"#696969","#696969",null,null,null,null,null,null,null,null,"#696969","#696969",null,null],
+  ],
+  HAWKEYE: [
+    [null,null,null,null,null,"#4B0082","#4B0082","#4B0082","#4B0082","#4B0082","#4B0082",null,null,null,null,null],
+    [null,null,null,null,"#4B0082","#4B0082","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#4B0082","#4B0082",null,null,null,null],
+    [null,null,null,"#4B0082","#FFE4B5","#FFE4B5","#000000","#FFE4B5","#FFE4B5","#000000","#FFE4B5","#FFE4B5","#4B0082",null,null,null],
+    [null,null,"#4B0082","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#4B0082",null,null],
+    [null,"#4B0082","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FF0000","#FFE4B5","#FFE4B5","#FF0000","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#4B0082",null],
+    [null,"#4B0082","#4B0082","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#4B0082","#4B0082",null],
+    [null,null,"#4B0082","#4B0082","#4B0082","#4B0082","#4B0082","#FFE4B5","#FFE4B5","#4B0082","#4B0082","#4B0082","#4B0082","#4B0082",null,null],
+    [null,null,null,"#4B0082","#4B0082","#4B0082","#4B0082","#4B0082","#4B0082","#4B0082","#4B0082","#4B0082","#4B0082",null,null,null],
+    [null,null,null,null,"#4B0082","#4B0082","#4B0082","#4B0082","#4B0082","#4B0082","#4B0082","#4B0082",null,"#696969","#696969","#696969"],
+    [null,null,null,null,null,"#4B0082","#4B0082","#4B0082","#4B0082","#4B0082","#4B0082",null,"#696969","#696969","#696969","#696969"],
+    [null,null,null,null,null,"#4B0082","#4B0082",null,null,"#4B0082","#4B0082",null,null,"#696969","#696969",null],
+    [null,null,null,null,null,"#4B0082","#4B0082",null,null,"#4B0082","#4B0082",null,null,null,null,null],
+    [null,null,null,null,null,"#4B0082","#4B0082",null,null,"#4B0082","#4B0082",null,null,null,null,null],
+    [null,null,null,null,null,"#4B0082","#4B0082",null,null,"#4B0082","#4B0082",null,null,null,null,null],
+    [null,null,null,null,null,"#4B0082","#4B0082",null,null,"#4B0082","#4B0082",null,null,null,null,null],
+    [null,null,null,null,null,"#696969","#696969",null,null,"#696969","#696969",null,null,null,null,null],
+  ],
+  VISION: [
+    [null,null,null,null,null,"#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700",null,null,null,null,null],
+    [null,null,null,null,"#FFD700","#FFD700","#DC143C","#DC143C","#DC143C","#DC143C","#FFD700","#FFD700",null,null,null,null],
+    [null,null,null,"#FFD700","#DC143C","#DC143C","#FFFF00","#DC143C","#DC143C","#FFFF00","#DC143C","#DC143C","#FFD700",null,null,null],
+    [null,null,"#228B22","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#228B22",null,null],
+    [null,"#228B22","#228B22","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#228B22","#228B22",null],
+    ["#228B22","#228B22","#FFD700","#DC143C","#DC143C","#DC143C","#DC143C","#FFFF00","#FFFF00","#DC143C","#DC143C","#DC143C","#DC143C","#FFD700","#228B22","#228B22"],
+    ["#228B22","#FFD700","#FFD700","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#FFD700","#FFD700","#228B22"],
+    [null,"#FFD700","#FFD700","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#FFD700","#FFD700",null],
+    [null,null,"#FFD700","#FFD700","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#FFD700","#FFD700",null,null],
+    [null,null,null,"#FFD700","#FFD700","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#FFD700","#FFD700",null,null,null],
+    [null,null,null,null,"#FFD700","#FFD700","#DC143C","#DC143C","#DC143C","#DC143C","#FFD700","#FFD700",null,null,null,null],
+    [null,null,null,null,null,"#FFD700","#FFD700","#DC143C","#DC143C","#FFD700","#FFD700",null,null,null,null,null],
+    [null,null,null,null,null,"#FFD700","#FFD700",null,null,"#FFD700","#FFD700",null,null,null,null,null],
+    [null,null,null,null,null,"#FFD700","#FFD700",null,null,"#FFD700","#FFD700",null,null,null,null,null],
+    [null,null,null,null,null,"#228B22","#FFD700",null,null,"#FFD700","#228B22",null,null,null,null,null],
+    [null,null,null,null,null,"#228B22","#228B22",null,null,"#228B22","#228B22",null,null,null,null,null],
+  ],
+};
+
+// Avengers Canvas Component
+const AvengersCanvas = ({ agentEvents }) => {
+  const canvasRef = useRef(null);
+  const spritesRef = useRef(new Map()); // Map<agentName, sprite> - max 8 sprites
+  const animationRef = useRef(null);
+  const trailsRef = useRef([]); // Trail particles: { x, y, color, opacity, life, maxLife }
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+
+    // Resize canvas to match window
+    const resize = () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    };
+    resize();
+    window.addEventListener("resize", resize);
+
+    // Animation loop
+    const animate = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      const now = Date.now();
+
+      // Update and draw trails
+      trailsRef.current = trailsRef.current.filter(t => {
+        t.life--;
+        t.opacity = t.life / t.maxLife;
+        if (t.life <= 0) return false;
+        ctx.fillStyle = t.color;
+        ctx.globalAlpha = t.opacity;
+        ctx.fillRect(t.x, t.y, t.size || 2, t.size || 2);
+        ctx.globalAlpha = 1;
+        // Spread dust particles
+        if (t.spread) { t.x += t.vx; t.y += t.vy; }
+        return true;
+      });
+
+      // Update and draw sprites
+      spritesRef.current.forEach((sprite, agentName) => {
+        const elapsed = (now - sprite.startTime) / 1000;
+
+        if (sprite.phase === "flying") {
+          updateSpritePhysics(sprite, elapsed, canvas, now);
+        } else if (sprite.phase === "victory") {
+          const spinElapsed = (now - sprite.phaseStart) / 1000;
+          sprite.rotation = spinElapsed * Math.PI * 6; // 3 full rotations/sec
+          if (spinElapsed > 0.6) {
+            sprite.phase = "exiting";
+            sprite.phaseStart = now;
+          }
+        } else if (sprite.phase === "exiting") {
+          sprite.x += sprite.vx * 3;
+          sprite.y += sprite.vy * 3;
+          if (sprite.x < -100 || sprite.x > canvas.width + 100 ||
+              sprite.y < -100 || sprite.y > canvas.height + 100) {
+            spritesRef.current.delete(agentName);
+            return;
+          }
+        } else if (sprite.phase === "flash_red") {
+          const flashElapsed = (now - sprite.phaseStart) / 1000;
+          const flashCount = Math.floor(flashElapsed * 10);
+          sprite.flashOn = (flashCount % 2 === 0);
+          if (flashElapsed < 0.6) {
+            sprite.scale = 1;
+          } else {
+            sprite.scale = Math.max(0, 1 - (flashElapsed - 0.6) * 5);
+            if (sprite.scale === 0) {
+              spritesRef.current.delete(agentName);
+              return;
+            }
+          }
+        }
+
+        // Draw character-specific effects
+        drawCharacterEffects(ctx, sprite, elapsed, now);
+
+        // Draw sprite
+        drawSprite(ctx, sprite, now);
+      });
+
+      animationRef.current = requestAnimationFrame(animate);
+    };
+
+    const updateSpritePhysics = (sprite, elapsed, canvas, now) => {
+      const char = sprite.character;
+
+      if (char === "IRON_MAN") {
+        // Figure-8 loop
+        if (!sprite.loopPhase) sprite.loopPhase = 0;
+        sprite.loopPhase += 0.015;
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height * 0.3;
+        const radiusX = 300;
+        const radiusY = 150;
+        const newX = centerX + Math.sin(sprite.loopPhase) * radiusX;
+        const newY = centerY + Math.sin(sprite.loopPhase * 2) * radiusY;
+        sprite.vx = newX - sprite.x;
+        sprite.vy = newY - sprite.y;
+        sprite.x = newX;
+        sprite.y = newY;
+        sprite.rotation = Math.atan2(sprite.vy, sprite.vx);
+        // Thruster trail
+        if (Math.random() < 0.6) {
+          trailsRef.current.push({ x: sprite.x + 24, y: sprite.y + 24, color: "#FF4500", opacity: 0.8, life: 20, maxLife: 20, size: 3 });
+        }
+      } else if (char === "THOR") {
+        // Sweeping arcs with redirection
+        if (!sprite.nextRedirect) sprite.nextRedirect = now + 2000;
+        if (now >= sprite.nextRedirect) {
+          sprite.vx = (Math.random() - 0.5) * 6;
+          sprite.vy = (Math.random() - 0.5) * 6;
+          sprite.nextRedirect = now + 2000;
+          // Lightning burst
+          for (let i = 0; i < 8; i++) {
+            trailsRef.current.push({
+              x: sprite.x + 24 + (Math.random() - 0.5) * 30,
+              y: sprite.y + 24 + (Math.random() - 0.5) * 30,
+              color: "#FFFF00",
+              opacity: 1,
+              life: 30,
+              maxLife: 30,
+              size: 2,
+            });
+          }
+        }
+        sprite.x += sprite.vx;
+        sprite.y += sprite.vy;
+        // Boundary bounce
+        if (sprite.x < 50) { sprite.x = 50; sprite.vx = Math.abs(sprite.vx); }
+        if (sprite.x > canvas.width - 50) { sprite.x = canvas.width - 50; sprite.vx = -Math.abs(sprite.vx); }
+        if (sprite.y < 50) { sprite.y = 50; sprite.vy = Math.abs(sprite.vy); }
+        if (sprite.y > canvas.height - 50) { sprite.y = canvas.height - 50; sprite.vy = -Math.abs(sprite.vy); }
+        sprite.rotation = Math.atan2(sprite.vy, sprite.vx);
+        // Lightning trail
+        if (Math.random() < 0.4) {
+          trailsRef.current.push({ x: sprite.x + 24, y: sprite.y + 24, color: "#FFFF00", opacity: 0.7, life: 30, maxLife: 30, size: 2 });
+        }
+      } else if (char === "SPIDER_MAN") {
+        // Pendulum swing
+        if (!sprite.anchorX) {
+          sprite.anchorX = canvas.width * 0.3;
+          sprite.anchorY = 60;
+          sprite.swingAngle = 0;
+          sprite.swingVel = 0.05;
+        }
+        sprite.anchorX += 0.3;
+        const wrapPoint = canvas.width * 0.8;
+        if (sprite.anchorX > wrapPoint) sprite.anchorX = canvas.width * 0.2;
+        const radius = 180;
+        sprite.swingAngle += sprite.swingVel;
+        sprite.x = sprite.anchorX + Math.sin(sprite.swingAngle) * radius;
+        sprite.y = sprite.anchorY + Math.cos(sprite.swingAngle) * radius;
+        sprite.rotation = sprite.swingAngle;
+      } else if (char === "HULK") {
+        // Running with jumps
+        if (!sprite.onGround) sprite.onGround = true;
+        if (!sprite.nextJump) sprite.nextJump = now + 4000;
+        const groundY = canvas.height - 80;
+        if (sprite.onGround) {
+          sprite.y = groundY;
+          sprite.vy = 0;
+          sprite.x += sprite.vx;
+          if (sprite.x < 0) { sprite.x = 0; sprite.vx = 4; }
+          if (sprite.x > canvas.width - 48) { sprite.x = canvas.width - 48; sprite.vx = -4; }
+          if (now >= sprite.nextJump) {
+            sprite.vy = -12;
+            sprite.onGround = false;
+            sprite.nextJump = now + 4000;
+          }
+        } else {
+          sprite.vy += 0.5; // gravity
+          sprite.y += sprite.vy;
+          sprite.x += sprite.vx * 0.8;
+          if (sprite.y >= groundY) {
+            sprite.y = groundY;
+            sprite.onGround = true;
+            sprite.squashFrames = 5;
+            // Dust puffs
+            for (let i = 0; i < 6; i++) {
+              trailsRef.current.push({
+                x: sprite.x + 24 + (Math.random() - 0.5) * 20,
+                y: sprite.y + 48,
+                vx: (Math.random() - 0.5) * 2,
+                vy: -Math.random() * 2,
+                color: "#A0A0A0",
+                opacity: 0.6,
+                life: 25,
+                maxLife: 25,
+                size: 3,
+                spread: true,
+              });
+            }
+          }
+        }
+        sprite.rotation = 0;
+        if (sprite.squashFrames && sprite.squashFrames > 0) sprite.squashFrames--;
+      } else if (char === "CAPTAIN_AMERICA") {
+        // Running with shield throw
+        if (!sprite.shieldOut) sprite.shieldOut = false;
+        if (!sprite.nextThrow) sprite.nextThrow = now + 3000;
+        sprite.x += sprite.vx * (sprite.shieldOut ? 0.6 : 1);
+        if (sprite.x < 0) { sprite.x = 0; sprite.vx = 3; }
+        if (sprite.x > canvas.width - 48) { sprite.x = canvas.width - 48; sprite.vx = -3; }
+        sprite.y = canvas.height - 100;
+        sprite.rotation = 0;
+        if (!sprite.shieldOut && now >= sprite.nextThrow) {
+          sprite.shieldOut = true;
+          sprite.shield = { x: sprite.x + 24, y: sprite.y + 24, vx: sprite.vx > 0 ? 8 : -8, vy: -2, phase: 0 };
+          sprite.nextThrow = now + 3000;
+        }
+      } else if (char === "BLACK_WIDOW") {
+        // Fast with direction changes and flips
+        if (!sprite.nextFlip) sprite.nextFlip = now + (1000 + Math.random() * 1000);
+        sprite.x += sprite.vx;
+        sprite.y += sprite.vy;
+        if (sprite.x < 0 || sprite.x > canvas.width - 48) sprite.vx = -sprite.vx;
+        if (sprite.y < 0 || sprite.y > canvas.height - 48) sprite.vy = -sprite.vy;
+        if (now >= sprite.nextFlip) {
+          sprite.vx = (Math.random() - 0.5) * 8;
+          sprite.vy = (Math.random() - 0.5) * 8;
+          sprite.flipping = true;
+          sprite.flipStart = now;
+          sprite.nextFlip = now + (1000 + Math.random() * 1000);
+        }
+        sprite.rotation = Math.atan2(sprite.vy, sprite.vx);
+        if (sprite.flipping && now - sprite.flipStart > 300) sprite.flipping = false;
+        // Motion blur
+        sprite.trail = sprite.trail || [];
+        sprite.trail.push({ x: sprite.x, y: sprite.y });
+        if (sprite.trail.length > 3) sprite.trail.shift();
+      } else if (char === "HAWKEYE") {
+        // Methodical movement with arrow shots
+        if (!sprite.nextShoot) sprite.nextShoot = now + 2500;
+        if (!sprite.moving) sprite.moving = true;
+        if (sprite.moving) {
+          sprite.x += sprite.vx;
+          if (sprite.x < 0 || sprite.x > canvas.width - 48) sprite.vx = -sprite.vx;
+          sprite.y = canvas.height * 0.6;
+          if (now >= sprite.nextShoot) {
+            sprite.moving = false;
+            sprite.drawingBow = true;
+            sprite.shootStart = now;
+          }
+        }
+        if (sprite.drawingBow && now - sprite.shootStart > 500) {
+          sprite.drawingBow = false;
+          sprite.arrow = { x: sprite.x + 24, y: sprite.y + 24, vx: sprite.vx > 0 ? 12 : -12, life: 60 };
+          sprite.nextShoot = now + 2500;
+          sprite.moving = true;
+        }
+        sprite.rotation = 0;
+      } else if (char === "VISION") {
+        // Slow sine wave float
+        if (!sprite.floatPhase) sprite.floatPhase = 0;
+        sprite.floatPhase += 0.01;
+        sprite.x += 1.5;
+        if (sprite.x > canvas.width + 48) sprite.x = -48;
+        sprite.y = canvas.height / 2 + Math.sin(sprite.floatPhase) * 80;
+        sprite.phaseOpacity = 0.7 + Math.sin(elapsed * 2) * 0.3;
+        sprite.rotation = 0;
+      }
+    };
+
+    const drawCharacterEffects = (ctx, sprite, elapsed, now) => {
+      const char = sprite.character;
+
+      // Spider-Man web line
+      if (char === "SPIDER_MAN" && sprite.anchorX) {
+        ctx.strokeStyle = "#888888";
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = 0.4;
+        ctx.beginPath();
+        ctx.moveTo(sprite.anchorX, sprite.anchorY);
+        ctx.lineTo(sprite.x + 24, sprite.y + 24);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+
+      // Captain America shield
+      if (char === "CAPTAIN_AMERICA" && sprite.shield) {
+        const s = sprite.shield;
+        s.phase += 0.2;
+        s.x += s.vx;
+        s.y += s.vy;
+        s.vy += 0.1; // arc
+        // Draw shield
+        ctx.save();
+        ctx.translate(s.x, s.y);
+        ctx.rotate(s.phase);
+        ctx.fillStyle = "#DC143C";
+        ctx.beginPath();
+        ctx.arc(0, 0, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#FFFFFF";
+        ctx.beginPath();
+        ctx.arc(0, 0, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#0000FF";
+        ctx.beginPath();
+        ctx.arc(0, 0, 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        // Check if shield returns
+        const dist = Math.hypot(s.x - (sprite.x + 24), s.y - (sprite.y + 24));
+        if (dist > 200 || s.y > canvas.height) {
+          s.vx = -s.vx * 0.8;
+          s.vy = -Math.abs(s.vy) * 0.5;
+        }
+        if (dist < 20) sprite.shield = null;
+      }
+
+      // Black Widow motion blur
+      if (char === "BLACK_WIDOW" && sprite.trail) {
+        sprite.trail.forEach((t, i) => {
+          ctx.globalAlpha = (i + 1) / sprite.trail.length * 0.2;
+          drawSpriteAt(ctx, sprite, t.x, t.y, 1);
+        });
+        ctx.globalAlpha = 1;
+      }
+
+      // Hawkeye arrow
+      if (char === "HAWKEYE" && sprite.arrow) {
+        const a = sprite.arrow;
+        a.x += a.vx;
+        a.life--;
+        ctx.fillStyle = "#8B4513";
+        ctx.globalAlpha = a.life / 60;
+        ctx.fillRect(a.x, a.y, 8, 2);
+        ctx.globalAlpha = 1;
+        if (a.life <= 0 || a.x < 0 || a.x > canvas.width) sprite.arrow = null;
+      }
+    };
+
+    animate();
+
+    return () => {
+      window.removeEventListener("resize", resize);
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+    };
+  }, []);
+
+  // Handle agent events
+  useEffect(() => {
+    if (!agentEvents) return;
+
+    if (agentEvents.type === "agent_start") {
+      const avenger = AGENT_TO_AVENGER[agentEvents.agent] || 'HULK'; // Fallback to Hulk
+      console.log('Spawning', avenger, 'for', agentEvents.agent);
+
+      // Verify sprite exists
+      if (!AVENGER_SPRITES[avenger]) {
+        console.error('No sprite defined for', avenger);
+        return;
+      }
+
+      // Character-specific initialization
+      let x, y, vx, vy;
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+
+      if (avenger === "IRON_MAN") {
+        // Offset architect vs coder so both are visible
+        const isArchitect = agentEvents.agent === "architect";
+        x = isArchitect ? w / 2 - 150 : w / 2 + 150;
+        y = h * 0.3;
+        vx = 0; vy = 0;
+      } else if (avenger === "THOR") {
+        x = Math.random() * w; y = Math.random() * h;
+        vx = (Math.random() - 0.5) * 6; vy = (Math.random() - 0.5) * 6;
+      } else if (avenger === "SPIDER_MAN") {
+        x = 100; y = 150; vx = 0; vy = 0;
+      } else if (avenger === "HULK") {
+        x = Math.random() * w; y = h - 80;
+        vx = Math.random() > 0.5 ? 4 : -4; vy = 0;
+      } else if (avenger === "CAPTAIN_AMERICA") {
+        x = 100; y = h - 100;
+        vx = 3; vy = 0;
+      } else if (avenger === "BLACK_WIDOW") {
+        x = Math.random() * w; y = Math.random() * h;
+        vx = (Math.random() - 0.5) * 8; vy = (Math.random() - 0.5) * 8;
+      } else if (avenger === "HAWKEYE") {
+        x = 100; y = h * 0.6;
+        vx = 2; vy = 0;
+      } else { // VISION
+        x = -48; y = h / 2;
+        vx = 1.5; vy = 0;
+      }
+
+      spritesRef.current.set(agentEvents.agent, {
+        character: avenger,
+        x, y, vx, vy,
+        phase: "flying",
+        startTime: Date.now(),
+        agentName: agentEvents.agent,
+        rotation: 0,
+        scale: 1,
+        flashOn: false,
+      });
+      console.log('Total sprites now:', spritesRef.current.size);
+    } else if (agentEvents.type === "agent_done") {
+      const sprite = spritesRef.current.get(agentEvents.agent);
+      if (sprite && sprite.phase === "flying") {
+        sprite.phase = "victory";
+        sprite.phaseStart = Date.now();
+      }
+    } else if (agentEvents.type === "agent_timeout") {
+      const sprite = spritesRef.current.get(agentEvents.agent);
+      if (sprite && sprite.phase === "flying") {
+        sprite.phase = "flash_red";
+        sprite.phaseStart = Date.now();
+      }
+    } else if (agentEvents.type === "agents_clear") {
+      spritesRef.current.clear();
+      trailsRef.current = [];
+    }
+  }, [agentEvents]);
+
+  const drawSpriteAt = (ctx, sprite, x, y, alpha) => {
+    const pixels = AVENGER_SPRITES[sprite.character];
+    if (!pixels) return;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(x + 24, y + 24);
+
+    // Rotation (continuous for flight direction)
+    if (sprite.rotation) ctx.rotate(sprite.rotation);
+
+    // Mirror horizontally if moving left
+    const facingLeft = sprite.vx < 0;
+    if (facingLeft) ctx.scale(-1, 1);
+
+    // Scale (for shrinking on timeout)
+    if (sprite.scale !== 1) ctx.scale(sprite.scale, sprite.scale);
+
+    // Flip (Black Widow)
+    if (sprite.flipping) ctx.scale(1, -1);
+
+    // Squash (Hulk landing)
+    if (sprite.squashFrames && sprite.squashFrames > 0) {
+      ctx.scale(1.3, 0.7);
+    }
+
+    ctx.translate(-24, -24);
+
+    // Vision phasing
+    if (sprite.phaseOpacity) ctx.globalAlpha = sprite.phaseOpacity;
+
+    for (let row = 0; row < 16; row++) {
+      for (let col = 0; col < 16; col++) {
+        const color = pixels[row][col];
+        if (color) {
+          let fillColor = color;
+          if (sprite.phase === "flash_red" && sprite.flashOn) fillColor = "#FF0000";
+          ctx.fillStyle = fillColor;
+          ctx.fillRect(col * PIXEL_SCALE, row * PIXEL_SCALE, PIXEL_SCALE, PIXEL_SCALE);
+        }
+      }
+    }
+
+    ctx.restore();
+  };
+
+  const drawSprite = (ctx, sprite, now) => {
+    drawSpriteAt(ctx, sprite, sprite.x, sprite.y, 1);
+  };
+
+  return (
+    <canvas
+      ref={canvasRef}
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        width: "100%",
+        height: "100%",
+        zIndex: 9999,
+        pointerEvents: "none",
+      }}
+    />
+  );
+};
+
 // ── App ────────────────────────────────────────────────────────────────────────
 function App() {
   const skipBoot = new URLSearchParams(window.location.search).has("skipBoot");
@@ -1479,6 +2127,7 @@ function App() {
   const [agentStates, setAgentStates] = useState({});
   const [usage, setUsage] = useState(null);
   const [timers, setTimers] = useState([]);
+  const [avengersEvent, setAvengersEvent] = useState(null);
   const { time, uptime } = useClock();
 
   const [positions, setPositions] = useState(() => {
@@ -1617,17 +2266,22 @@ function App() {
       // Parallel multi-agent events from agent_bus.py
       case "agent_start": {
         const a = msg.agent;
+        console.log('agent_start received for:', a);
+        console.log('mapped to:', AGENT_TO_AVENGER[a]);
         setAgentStates(prev => ({ ...prev, [a]: { status: "active", elapsed: null, lastUsed: prev[a]?.lastUsed || null } }));
+        setAvengersEvent({ type: "agent_start", agent: a });
         break;
       }
       case "agent_done": {
         const a = msg.agent;
         setAgentStates(prev => ({ ...prev, [a]: { status: "done", elapsed: msg.elapsed, lastUsed: ts() } }));
+        setAvengersEvent({ type: "agent_done", agent: a });
         break;
       }
       case "agent_timeout": {
         const a = msg.agent;
         setAgentStates(prev => ({ ...prev, [a]: { status: "timeout", elapsed: null, lastUsed: ts() } }));
+        setAvengersEvent({ type: "agent_timeout", agent: a });
         break;
       }
       case "agents_clear": {
@@ -1636,6 +2290,7 @@ function App() {
           Object.keys(prev).forEach(k => { next[k] = { ...prev[k], status: "idle" }; });
           return next;
         });
+        setAvengersEvent({ type: "agents_clear" });
         break;
       }
       case "user_msg":    setConv(c => [...c, { role: "user",   text: msg.text, ts: ts() }]); break;
@@ -1670,6 +2325,8 @@ function App() {
       {!booted && <Boot onDone={() => setBooted(true)} />}
 
       {booted && (<>
+        <AvengersCanvas agentEvents={avengersEvent} />
+
         <div className={`top-badge ${model === "sonnet" ? "show" : ""}`}>
           <span className="pip"></span>SONNET 4.6 ENGAGED
         </div>
