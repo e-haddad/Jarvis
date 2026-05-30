@@ -1,220 +1,303 @@
-# Iris Core
+# Jarvis
 
-> Gesture-controlled smart home system — fully local computer vision pipeline on Raspberry Pi.
+> *"At your service, sir."*
 
-Iris lets you control smart home devices with hand gestures. No cloud dependency for detection — all computer vision runs locally on the Pi. Works with any Tuya-compatible smart plug or device.
-
----
-
-## Demo
-
-> Walk into a room → raise open hand, close fist, open hand → light toggles.
-
-*(Demo video coming soon)*
+A fully local AI voice assistant built on Mac Studio M4 Max — wake word activation, real-time speech recognition, parallel multi-agent intelligence, and a live browser HUD. Every line written from scratch.
 
 ---
 
-## Features
+## Overview
 
-- **Fully local gesture detection** — MediaPipe runs on-device, no data leaves your network
-- **Real-time device control** — sub-second response via local LAN (tinytuya)
-- **Web dashboard** — toggle devices and remap gestures from any browser on your network
-- **No cloud subscription required** — works completely offline
-- **Extensible gesture set** — add new gestures and actions via config
+Jarvis is a production-grade personal AI assistant running entirely on local hardware. It listens for a wake word, transcribes speech locally with Whisper, routes queries through a multi-agent orchestration layer powered by Claude, and responds via ElevenLabs neural TTS — all in real time.
 
----
+The system has grown through 14 development phases from a simple voice loop into a parallel multi-agent architecture with 22+ integrations, a live browser HUD with real-time agent status, and remote access from any device on the network.
 
-## Hardware Requirements
-
-| Component | Specification |
-|---|---|
-| Single-board computer | Raspberry Pi 5 (8GB recommended) |
-| OS | Raspberry Pi OS 64-bit (Bookworm) |
-| Camera | Arducam Camera Module 3 Wide 120° (IMX708) |
-| Cable | 500mm CSI-2 ribbon cable |
-| Power supply | 5V 5A USB-C (CanaKit recommended) |
-| Smart devices | Any Tuya-compatible smart plug |
+This is not a demo or a tutorial project. It runs 24/7, auto-starts on login, handles real tasks daily, and gets new capabilities every week.
 
 ---
 
-## How It Works
+## Architecture
 
 ```
-Camera → MediaPipe (local) → Gesture classifier → Action executor → Tuya LAN API → Device
+Wake Word (OpenWakeWord)
+        │
+        ▼
+Speech Recognition (Whisper turbo — local)
+        │
+        ▼
+MasterOrchestrator (Claude Sonnet)
+        │
+        ├── Intent classification
+        └── Dispatch plan → parallel agent spawn
+                │
+    ┌───────────┼───────────┐
+    ▼           ▼           ▼
+Researcher   Coder      Career
+  Agent       Agent      Agent
+    └───────────┴───────────┘
+                │
+                ▼
+       Synthesis (Claude Haiku)
+                │
+                ▼
+     ElevenLabs Flash v2.5 TTS
+      (Kokoro ONNX fallback)
 ```
 
-Two systemd services run on boot:
-- **iris.service** — Flask web dashboard on port 5000
-- **iris-gesture.service** — headless gesture detection loop
+**Voice pipeline:** OpenWakeWord → Whisper turbo (local, fp16) → VAD silence detection → orchestrator → parallel agents → sentence-level streaming TTS
+
+**Agent routing:**
+- Short commands → General Jarvis (Haiku, low latency)
+- Complex queries (≥6 words) → MasterOrchestrator spawns specialist agents in parallel via `asyncio.gather`
+- Single-agent results spoken directly — synthesis layer only fires for multi-agent turns
+
+**Token routing:**
+- Haiku: routine turns (400 tokens)
+- Sonnet: agent turns and orchestration (800 tokens)
+- Code turns: 4096 tokens
 
 ---
 
-## Gesture Set
+## Specialist Agents
 
-| Gesture | Type | Default Action |
+| Agent | Role | Tools |
 |---|---|---|
-| Open → Fist → Open | Trigger | Toggle light (configurable) |
-| Pinch (thumb + index) | Trigger | Toggle all lights (configurable) |
-| Peace sign (2 fingers) | Trigger | Toggle light (configurable) |
-| Both hands open | Trigger | All off (configurable) |
-| Fist held + move up/down | Continuous | Brightness control (requires smart bulb) |
+| **Researcher** | Web search, URL summarization, news, information gathering | `web_search`, `fetch_url_summary`, `get_news`, `get_crypto_price` |
+| **Architect** | System design, technical planning, code review | `read_file_direct`, `list_folder`, `run_claude_code` |
+| **Coder** | Code generation, file writes, execution, debugging | `read_file_direct`, `write_file`, `run_python`, `run_terminal_command`, `run_claude_code` |
+| **Career** | Job search, resume, applications, cover letters | Vault reads, `web_search`, `fetch_url_summary`, `draft_email` |
+| **Finance** | Market data, crypto, financial awareness | `get_crypto_price`, `web_search` |
+| **Projects** | Project-specific context and code tasks | Full code tools + project vault |
+| **Iris** | Iris smart home project on Raspberry Pi 5 | Code tools + SSH via terminal |
+| **General** | Everything else — weather, calendar, email, Spotify | All general tools |
 
-All trigger gestures are remappable from the web dashboard — no config file editing required.
-
----
-
-## Setup Guide
-
-### 1. Clone the repo
-
-```bash
-git clone https://github.com/e-haddad/iris-core.git
-cd iris-core
-```
-
-### 2. Create a virtual environment
-
-```bash
-python3 -m venv venv --system-site-packages
-source venv/bin/activate
-```
-
-### 3. Install dependencies
-
-```bash
-pip install flask tinytuya mediapipe
-```
-
-> `picamera2` and `opencv-python` are available via system packages on Raspberry Pi OS — included via `--system-site-packages`.
-
-### 4. Configure your camera
-
-Edit `/boot/firmware/config.txt`:
-
-```
-camera_auto_detect=0
-
-[all]
-dtoverlay=imx708,cam1
-```
-
-Reboot after saving.
-
-### 5. Add your Tuya device credentials
-
-Run the tinytuya wizard to get your local device keys:
-
-```bash
-python3 -m tinytuya wizard
-```
-
-Follow the prompts — you'll need your Tuya IoT Platform API key, API secret, and region. This generates a `devices.json` with local keys for all your devices.
-
-Edit `actions.py` and `app.py` with your device IDs, IPs, and local keys from `devices.json`.
-
-### 6. Configure systemd services
-
-Create `/etc/systemd/system/iris.service`:
-
-```ini
-[Unit]
-Description=Iris Web Dashboard
-After=network.target
-
-[Service]
-WorkingDirectory=/home/YOUR_USER/iris-core
-ExecStart=/home/YOUR_USER/iris-core/venv/bin/python app.py
-Restart=always
-User=YOUR_USER
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Create `/etc/systemd/system/iris-gesture.service`:
-
-```ini
-[Unit]
-Description=Iris Gesture Engine
-After=network.target
-
-[Service]
-WorkingDirectory=/home/YOUR_USER/iris-core
-ExecStart=/home/YOUR_USER/iris-core/venv/bin/python gesture_engine.py
-Restart=always
-User=YOUR_USER
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable and start both services:
-
-```bash
-sudo systemctl enable iris.service iris-gesture.service
-sudo systemctl start iris.service iris-gesture.service
-```
-
-### 7. Access the dashboard
-
-Open a browser on any device on your local network:
-
-```
-http://YOUR_PI_IP:5000
-```
+Each agent runs independently with its own tool executor loop (up to 8 rounds), a 60-second timeout, and live status updates streamed to the HUD.
 
 ---
 
-## Adding Gestures
+## Integrations
 
-1. Add a new gesture classifier case in `gesture_engine.py` → `classify_gesture()`
-2. Add the gesture key to `config.json` under `gestures`
-3. Add the gesture key to `GESTURE_MAP` in `gesture_engine.py`
-4. Add any new actions to `trigger_actions` in `config.json` and handle them in `actions.py`
+| Category | Integration |
+|---|---|
+| **AI / LLM** | Claude API (Haiku + Sonnet), Claude Code subprocess |
+| **Speech** | OpenWakeWord, Whisper turbo (local), ElevenLabs Flash v2.5, Kokoro ONNX v1.0 (fallback) |
+| **Google** | Gmail API (read + draft), Google Calendar API (read + write) |
+| **Music** | Spotify (now playing, playback controls, play by track/artist/album/playlist, personal playlist lookup) |
+| **Smart Home** | Tuya API (via Iris project on Raspberry Pi 5) |
+| **Search & Web** | Brave Search API, Open-Meteo weather, CoinGecko crypto |
+| **Knowledge Base** | Obsidian vault — read, write, append, inbox, consolidation |
+| **System** | Terminal runner (whitelisted), filesystem R/W, app launcher, browser launcher |
+| **Infrastructure** | FastAPI + WebSocket HUD, Tailscale remote access, launchd auto-start, Git auto-commit + GitHub push |
 
 ---
 
-## Adding Devices
+## Browser HUD
 
-1. Run `python3 -m tinytuya wizard` to get the new device's local key and IP
-2. Add the device to the `DEVICES` dict in both `actions.py` and `app.py`
-3. Add toggle actions to `config.json` → `trigger_actions` if needed
+A self-contained real-time dashboard served at `localhost:8765`. Panels are draggable, collapsible, and position-persistent via localStorage.
+
+**Panels:**
+
+- **System** — live status, mic detection, mode indicators
+- **Conversation** — full transcript of voice turns, streaming output
+- **Agents** — real-time parallel agent status with pulse animations; shows which agents are active, what tools they're calling, and when they complete
+- **Spotify** — album art, track and artist, scrubbing progress bar, ⏮ ⏸/▶ ⏭ controls (polls every 5s)
+- **Timer** — countdown ring stack; yellows at 60s, flashes green on completion, auto-removes
+- **Usage** — Claude token spend, ElevenLabs character tracking
+
+Mobile responsive — stacks vertically on screens ≤768px. Accessible remotely at `100.75.165.120:8765` via Tailscale from any device.
+
+---
+
+## Capabilities
+
+**Voice control**
+- Wake word always listening ("hey jarvis") — OpenWakeWord, fully local
+- 30ms VAD frames, 1.2s silence detection, 30s recording ceiling
+- Hallucination filter on Whisper output
+
+**Information**
+- Real-time web search via Brave Search
+- Current weather — Open-Meteo (location-aware)
+- Live news briefing with freshness filter
+- Cryptocurrency prices via CoinGecko
+- Startup brief generated in parallel thread on wake
+
+**Calendar & Email**
+- Read upcoming events, query by date, create events — Google Calendar
+- Read Gmail, scan for job application emails
+- Draft emails by voice — creates Gmail drafts via API (does not send without confirmation)
+
+**Music**
+- Spotify playback — play by track, artist, album, or playlist by voice
+- Personal playlist lookup by name
+- Full playback controls — pause, play, next, previous
+- Now playing in HUD with album art and progress bar
+
+**Code & Terminal**
+- Voice-activated coding tasks routed to Coder/Architect agents
+- `run_claude_code()` — hands off to Claude Code subprocess for complex refactors
+- `run_terminal_command()` — whitelisted shell execution with 30s timeout and block-pattern safety model
+- Auto-backup before every file write, auto-commit + auto-push to GitHub after every change
+
+**Knowledge Base**
+- Reads and writes to Obsidian vault
+- Agent write-back: after multi-turn sessions, Haiku extracts 3–5 insight bullets automatically
+- Note consolidation: Sonnet rewrites notes after 3 session logs accumulate
+- Auto-capture: keyword-gated background thread adds voice captures to Obsidian Inbox
+
+**Reminders & Timers**
+- Set reminders by voice — fast-path intercept before Claude to minimize latency
+- Timer panel in HUD with countdown ring, stacks multiple concurrent timers
+
+**System**
+- Open macOS applications by voice
+- Open URLs and perform in-site searches (YouTube, Reddit, Amazon, GitHub, Spotify, Google)
+
+---
+
+## Technical Stack
+
+| Layer | Technology |
+|---|---|
+| **Hardware** | Mac Studio M4 Max 36GB |
+| **Language** | Python 3.11 |
+| **LLM** | Anthropic Claude API — Haiku 3.5 / Sonnet 4.6 |
+| **Wake Word** | OpenWakeWord |
+| **STT** | Whisper turbo (local, fp16=False) |
+| **TTS Primary** | ElevenLabs Flash v2.5 (streaming, sentence-level) |
+| **TTS Fallback** | Kokoro ONNX v1.0 (local, bm_george voice) |
+| **VAD** | webrtcvad |
+| **Server** | FastAPI + WebSocket |
+| **Spotify** | spotipy |
+| **Search** | Brave Search API |
+| **Weather** | Open-Meteo (free, no key) |
+| **Crypto** | CoinGecko free API |
+| **Google** | Google Calendar API + Gmail API (OAuth2) |
+| **Vault** | Obsidian (filesystem read/write) |
+| **Remote** | Tailscale |
+| **Service** | launchd (auto-start on login) |
+| **Version Control** | Git + GitHub (auto-commit on write) |
 
 ---
 
 ## File Structure
 
 ```
-iris-core/
-├── app.py              # Flask web dashboard and device routes
-├── gesture_engine.py   # MediaPipe hand detection and gesture classification
-├── actions.py          # Action executor — maps gestures to device commands
-├── config.json         # Gesture definitions and action mappings
-├── templates/
-│   └── index.html      # Dashboard UI
-├── LICENSE
-└── README.md
+Jarvis/
+├── main.py                  # Entry point — FastAPI + voice loop + daemon threads
+├── server.py                # FastAPI routes + WebSocket + Spotify endpoints
+├── listen.py                # VAD recording + OpenWakeWord
+├── transcribe.py            # Whisper turbo + hallucination filter
+├── think.py                 # Claude API + tool calling + streaming + auto-capture
+├── speak.py                 # ElevenLabs + Kokoro fallback + sentence streaming
+├── agents.py                # Four sequential agents + chained tool loop (8 rounds)
+├── orchestrator.py          # Intent classifier + agent system prompts
+├── agent_bus.py             # AgentBus + MasterOrchestrator + parallel async runner
+├── vault.py                 # Obsidian read/write
+├── filesystem.py            # File R/W + auto-backup + auto-commit + terminal runner
+├── search.py                # Web search + weather + news + crypto + Spotify + email + Claude Code
+├── memory.py                # Jarvis_Memory.md + personality traits
+├── jarvis_calendar.py       # Google Calendar + Gmail OAuth2
+├── context.py               # Selective project context loader
+├── briefing.py              # Startup brief generation
+├── gmail_pulls.py           # Gmail job scan + calendar pulls (every 3h)
+├── usage_tracker.py         # Claude + ElevenLabs usage tracking
+├── jarvis-hud.html          # Self-contained browser HUD
+├── permissions.json         # Filesystem whitelist
+├── com.edward.jarvis.plist  # launchd service config
+├── btc_price.py             # Bitcoin price utility
+├── .backups/                # Auto-backup directory
+└── static/
+    └── icon.png             # App icon
 ```
 
 ---
 
-## Roadmap
+## Development Phases
 
-- [ ] Spotify integration — local OAuth, playback control via gestures
-- [ ] Smart bulb brightness control — analog brightness via fist movement
-- [ ] Directional light targeting — target nearest device based on user position
-- [ ] Multi-room support — one Pi per room, shared device config
-- [ ] Mobile app — remote dashboard and gesture config
-- [ ] Hardware kit — pre-configured Pi + camera bundle
+| Phase | What Was Built |
+|---|---|
+| 1 | Wake word detection, Whisper STT, ElevenLabs TTS, voice pipeline |
+| 2 | Obsidian vault integration — read/write/append |
+| 3 | Permission-scoped filesystem access |
+| 4 | Claude API, tool calling, web search, full pipeline |
+| 5 | Memory system, personality, Google Calendar, context, startup brief, multi-agent foundation |
+| 6 | Proactive second brain, ElevenLabs, silent mode, usage tracking, code tools |
+| 6.5 | Streaming responses, natural briefing, browser HUD, Tailscale remote access |
+| 7 | Agent write-back, note consolidation, auto-capture, Gmail + calendar pulls, launchd, desktop/phone apps |
+| 8 | Agentic coding loop, chained tool calls, auto-backup, git integration, GitHub auto-push |
+| 9 | News briefing, crypto prices, reminder/timer panel, app launcher, Spotify panel |
+| 10 | Gmail draft creation via API |
+| 11 | Claude Code pipeline — `run_claude_code()`, heavy coding task classifier |
+| 12 | Terminal command runner — whitelist safety model, wired into all agents |
+| 13 | Spotify voice playback — personal playlist lookup, in-site search |
+| **14** | **Parallel multi-agent architecture — MasterOrchestrator, 8 specialist agents, async gather, per-agent timeouts, synthesis layer** |
 
 ---
 
-## License
+## Running Jarvis
 
-MIT — see [LICENSE](LICENSE) for details.
+**Auto-start (launchd):** Starts automatically on login via `com.edward.jarvis.plist`.
+
+**Manual start:**
+```bash
+cd ~/Desktop/Projects/Jarvis
+source ~/.zshrc
+python3.11 main.py
+```
+
+**Text-only mode (no mic):**
+```bash
+python3.11 main.py --text
+```
+
+**Server only (HUD without voice loop):**
+```bash
+python3.11 main.py --silent
+```
+
+**HUD:**
+- Local: `http://localhost:8765`
+- Remote: `http://100.75.165.120:8765` (Tailscale)
+
+**Standard restart after file changes:**
+```bash
+launchctl unload ~/Library/LaunchAgents/com.edward.jarvis.plist
+lsof -ti :8765 | xargs kill -9 2>/dev/null
+sleep 2
+source ~/.zshrc
+python3.11 main.py
+```
 
 ---
 
-## Author
+## Environment Variables
 
-Built by [Edward Haddad](https://github.com/e-haddad)
+Required in `~/.zshrc` and `com.edward.jarvis.plist`:
+
+```
+ANTHROPIC_API_KEY
+BRAVE_API_KEY
+ELEVENLABS_API_KEY
+SPOTIFY_CLIENT_ID
+SPOTIFY_CLIENT_SECRET
+GITHUB_TOKEN
+```
+
+Google OAuth credentials: `google_credentials.json` + `google_token.json` (not committed)
+Spotify token cache: `.spotify_token` (not committed)
+
+---
+
+## What's Next
+
+- Cover letter generator — feeds from vault resume + job posting URL
+- Finance agent — stock watchlist, portfolio awareness
+- Screenshot + Claude vision — `take_screenshot()` piped to Claude vision API
+- ElevenLabs auto-fallback at low character balance
+- People.md vault contact list for email drafting by name
+
+---
+
+*Built by Edward Haddad — ECE, Oakland University, Class of 2026.*
+*Running 24/7 on Mac Studio M4 Max, Royal Oak, Michigan.*
