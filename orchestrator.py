@@ -269,21 +269,25 @@ AGENT_SYSTEM_PROMPTS = {
 
 def get_agent_system_prompt(agent_name: str) -> str:
     """
-    Get system prompt for an agent with Second Brain context appended at runtime.
+    Get system prompt for an agent with vault context pre-loaded at runtime.
     Falls back to general agent if agent_name not found. Never crashes if file missing.
     """
+    from pathlib import Path
     base = AGENT_SYSTEM_PROMPTS.get(agent_name, AGENT_SYSTEM_PROMPTS["general"])
-    try:
-        from pathlib import Path
-        brain = Path.home() / "Desktop" / "OBS" / "Edward" / "Second_Brain.md"
-        if brain.exists():
-            content = brain.read_text(encoding="utf-8").strip()
-            if content:
-                base = base + f"\n\nSECOND BRAIN (shared cross-agent memory — use this to personalize responses):\n{content}"
-    except Exception:
-        pass
+    vault = Path.home() / "Desktop" / "OBS" / "Edward"
 
-    # Append target companies for career agent
+    def _read(path: Path) -> str:
+        try:
+            return path.read_text(encoding="utf-8").strip() if path.exists() else ""
+        except Exception:
+            return ""
+
+    # Second Brain — injected for all agents
+    brain = _read(vault / "Second_Brain.md")
+    if brain:
+        base = base + f"\n\nSECOND BRAIN:\n{brain}"
+
+    # Agent-specific pre-loaded context
     if agent_name == "career":
         try:
             from agents import _target_companies_context
@@ -292,6 +296,38 @@ def get_agent_system_prompt(agent_name: str) -> str:
                 base = base + f"\n\n{companies}"
         except Exception:
             pass
+        job_apps = _read(vault / "Career" / "Job Applications.md")
+        resume   = _read(vault / "Career" / "Resume & Portfolio.md")
+        if job_apps:
+            base = base + f"\n\nJOB APPLICATIONS:\n{job_apps}"
+        if resume:
+            base = base + f"\n\nRESUME & PORTFOLIO:\n{resume}"
+
+    elif agent_name == "projects":
+        jarvis_note = _read(vault / "Projects" / "Jarvis" / "Jarvis.md")
+        ideas       = _read(vault / "Projects" / "Ideas.md")
+        if jarvis_note:
+            base = base + f"\n\nJARVIS PROJECT NOTE:\n{jarvis_note}"
+        if ideas:
+            base = base + f"\n\nIDEAS & FEATURES:\n{ideas}"
+
+    elif agent_name == "iris":
+        tuya = _read(vault / "Projects" / "Iris" / "Iris Tuya Info.md")
+        iris = _read(vault / "Projects" / "Iris" / "Iris.md")
+        if tuya:
+            base = base + f"\n\nIRIS TUYA INFO:\n{tuya}"
+        if iris:
+            base = base + f"\n\nIRIS PROJECT NOTE:\n{iris}"
+
+    elif agent_name == "researcher":
+        # Researcher gets goals and priorities for context-aware searches
+        goals = _read(vault / "Life" / "Goals 2026.md")
+        if goals:
+            base = base + f"\n\nEDWARD'S GOALS:\n{goals}"
+
+    elif agent_name == "finance":
+        # Finance agent gets crypto and spending context if available
+        pass
 
     return base
 

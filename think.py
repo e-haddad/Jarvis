@@ -13,7 +13,7 @@ import anthropic
 
 from vault import add_to_inbox, read_note, append_to_note, list_notes
 from filesystem import list_folder, read_file, summarize_folder, create_file_in, open_obsidian_note, run_terminal_command
-from search import web_search, get_weather, get_news, get_crypto_price, set_reminder, open_app, draft_email, run_claude_code, detect_heavy_coding_task, play_on_spotify, fetch_url_summary
+from search import web_search, get_weather, get_news, get_crypto_price, set_reminder, open_app, draft_email, run_claude_code, detect_heavy_coding_task, detect_heavy_generation_task, play_on_spotify, fetch_url_summary
 from memory import (
     save_fact, read_memory, read_category, correct_memory,
     should_auto_remember, set_persona_trait, build_persona_instructions
@@ -37,6 +37,84 @@ SONNET = "claude-sonnet-4-6"
 # Experimental parallel multi-agent routing. Off by default — flip to True to
 # fan complex turns out across multiple specialists via MasterOrchestrator.
 USE_PARALLEL_AGENTS = True
+
+# ── Document Generation Fast-Path ──────────────────────────────────────────────
+
+def _generate_document(task: str, context_files: list[str] | None = None) -> str:
+    """
+    Fast-path for long-form document generation tasks.
+    Bypasses the agent tool loop — reads context upfront, generates in one Sonnet call.
+    Used for READMEs, cover letters, reports, summaries.
+    """
+    # Build context from specified files
+    context_parts = []
+    default_context_files = [
+        str(Path.home() / "Desktop/OBS/Edward/Second_Brain.md"),
+        str(Path.home() / "Desktop/OBS/Edward/Projects/Jarvis/Jarvis_Agent_Memory.md"),
+        str(Path.home() / "Desktop/OBS/Edward/Career/Resume & Portfolio.md"),
+    ]
+    files_to_read = context_files or default_context_files
+    for path_str in files_to_read:
+        try:
+            p = Path(path_str).expanduser()
+            if p.exists():
+                content = p.read_text(encoding="utf-8").strip()
+                if content:
+                    context_parts.append(f"### {p.name}\n{content}")
+        except Exception:
+            pass
+
+    context = "\n\n---\n\n".join(context_parts)
+
+    system = (
+        "You are Jarvis, Edward Haddad's personal AI. "
+        "Generate the requested document in full. "
+        "Be thorough, specific, and impressive — this is a portfolio piece. "
+        "Use the provided context to make it accurate and personalized. "
+        "Output the document content only — no preamble, no commentary, no markdown code fences. "
+        "Just the raw document content ready to save."
+    )
+
+    user_msg = f"Context about Edward and his projects:\n\n{context}\n\n---\n\nTask: {task}"
+
+    try:
+        doc_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+        resp = doc_client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=8192,
+            system=system,
+            messages=[{"role": "user", "content": user_msg}]
+        )
+        return resp.content[0].text.strip()
+    except Exception as e:
+        return f"Document generation failed: {e}"
+
+
+def _is_document_task(text: str) -> tuple[bool, str]:
+    """
+    Returns (True, doc_type) if the request is a long-form document generation task
+    that should bypass the agent loop.
+    """
+    lowered = text.lower()
+    doc_signals = {
+        "readme": "readme",
+        "cover letter": "cover_letter",
+        "write a report": "report",
+        "generate a report": "report",
+        "write a summary": "summary",
+        "write me a summary": "summary",
+        "draft a bio": "bio",
+        "write a bio": "bio",
+        "write a proposal": "proposal",
+        "generate a proposal": "proposal",
+        "write documentation": "documentation",
+        "write the docs": "documentation",
+    }
+    for signal, doc_type in doc_signals.items():
+        if signal in lowered:
+            return True, doc_type
+    return False, ""
+
 
 # ── Vault Self-Awareness ───────────────────────────────────────────────────────
 
@@ -1085,6 +1163,36 @@ def think(text: str, on_sentence=None) -> str:
             _history.append({"role": "assistant",  "content": result})
             return result
 
+    # ── Document generation fast-path ─────────────────────────────────────
+    is_doc, doc_type = _is_document_task(text)
+    if is_doc:
+        import re
+        from server import emit_status
+        emit_status("thinking")
+        # Check if a save path is mentioned
+        save_path = None
+        path_match = re.search(r'(~/[^\s]+|/[^\s]+\.md|/[^\s]+\.txt)', text)
+        if path_match:
+            save_path = path_match.group(1)
+
+        result = _generate_document(text)
+
+        if save_path:
+            try:
+                p = Path(save_path).expanduser()
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(result, encoding="utf-8")
+                response_text = f"Done — {doc_type.replace('_', ' ')} saved to {save_path}."
+            except Exception as e:
+                response_text = f"Generated but couldn't save: {e}\n\n{result[:500]}..."
+        else:
+            response_text = result
+
+        _history.append({"role": "user", "content": text})
+        _history.append({"role": "assistant", "content": response_text})
+        _trim_history()
+        return response_text
+
     # ── Multi-agent routing ────────────────────────────────────────────────
     intent = classify_intent(text, _history)
 
@@ -1100,8 +1208,8 @@ def think(text: str, on_sentence=None) -> str:
             _auto_memory_check(text, response_text)
             return response_text
 
-    # ── Claude Code fast-path — heavy coding tasks bypass Projects agent ──
-    if intent == "projects" and detect_heavy_coding_task(text):
+    # ── Claude Code fast-path — heavy coding/generation tasks bypass Projects agent ──
+    if intent == "projects" and (detect_heavy_coding_task(text) or detect_heavy_generation_task(text)):
         # Build a precise prompt and hand it off as a tool call
         cc_prompt = (
             f"You are working inside Edward Haddad's Jarvis project at ~/Desktop/Projects/Jarvis.\n"

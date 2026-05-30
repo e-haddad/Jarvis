@@ -242,7 +242,7 @@ def _synthesize(user_input: str, results: dict[str, str]) -> str:
     try:
         resp = client.messages.create(
             model=HAIKU,
-            max_tokens=600,
+            max_tokens=1000,
             system=_SYNTH_SYSTEM,
             messages=[{
                 "role": "user",

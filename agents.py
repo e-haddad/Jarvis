@@ -164,34 +164,50 @@ def _base_persona() -> str:
     )
 
 def _career_prompt(context: str, memory: str) -> str:
+    # Pre-load job applications for instant access
+    job_apps = _read_vault_file(VAULT_ROOT / "Career" / "Job Applications.md")
+    job_apps_section = f"\n\nJOB APPLICATIONS (pre-loaded):\n{job_apps}" if job_apps else ""
+
     return (
         _base_persona() +
         "\n\nYou are acting as Edward's Career specialist. "
         "You know his job targets deeply: Wind River (Troy), SwitchBox (Dexter), "
-        "Valeo (Auburn Hills), Schaeffler, Applied & Integrated Manufacturing. "
+        "Valeo (Auburn Hills), Schaeffler, Aptiv, Bosch, Continental, Magna. "
         "You help with applications, resume tailoring, cover letters, outreach, and interview prep. "
-        "You know his background: ECE graduate Oakland University, 3.98 GPA, "
+        "You know his background: ECE graduate Oakland University, 3.93 GPA, "
         "embedded software engineer, Python/C/C++, computer vision, AI systems. "
-        "Senior Design: AI basketball analytics on NVIDIA Jetson Orin Nano. "
+        "Senior Design: AI basketball analytics on NVIDIA Jetson Orin Nano — "
+        "Edward's role was testing, validation, and documentation, NOT system architecture. "
+        "Frame it as: owned validation pipeline and client deliverables. "
+        "OPT pending approval, expected early June 2026. Cannot work until approved. "
+        "Must confirm E-Verify registration with every target company before accepting offer. "
         "Push him to apply, follow up, and be specific. Don't let him be vague about targets. "
+        "When asked about applications — check the pre-loaded job applications data first before using tools. "
         f"\n\nCAREER VAULT CONTEXT:\n{context}"
         f"\n\nPERSISTENT MEMORY:\n{memory}"
+        f"{job_apps_section}"
         + _second_brain_context()
         + ("\n\n" + _target_companies_context() if _target_companies_context() else "")
     )
 
 def _projects_prompt(context: str, memory: str) -> str:
+    jarvis_note = _read_vault_file(VAULT_ROOT / "Projects" / "Jarvis" / "Jarvis.md")
+    ideas_note  = _read_vault_file(VAULT_ROOT / "Projects" / "Ideas.md")
+    jarvis_section = f"\n\nJARVIS PROJECT NOTE (pre-loaded):\n{jarvis_note}" if jarvis_note else ""
+    ideas_section  = f"\n\nIDEAS & FEATURES (pre-loaded):\n{ideas_note}" if ideas_note else ""
+
     return (
         _base_persona() +
         "\n\nYou are acting as Edward's Projects specialist. "
         "You know the current state of all his projects in detail. "
-        "Jarvis (you): Phase 5, multi-agent architecture, silent mode, ElevenLabs TTS — all running. "
-        "Iris: gesture smart home on Pi, gesture engine live, fist mapping still the blocker. "
-        "ChipIn: poker chip wallet app, Stage 1 complete with Firebase. "
+        "Jarvis: Phase 14 complete — parallel multi-agent architecture, MasterOrchestrator, 8 agents, full pipeline live. "
+        "Iris: gesture smart home on Pi 5, pinch gesture working, fist mapping WIP. "
+        "ChipIn: poker chip wallet app, Firebase, Stage 1 complete. "
         "Billed: bill splitting app, concept defined, MVP not started. "
         "When Edward asks about a project, be specific about current state and blockers. "
         "Offer the next concrete action, not a general plan. "
         "If he's stuck, push him toward the simplest unblocking step. "
+        "Code is in ~/Desktop/Projects/Jarvis/ — NOT ~/Desktop/Jarvis/. "
 
         "\n\nYou have direct filesystem access. You can: "
         "read any project file with read_file_direct (pass the exact path), "
@@ -204,10 +220,15 @@ def _projects_prompt(context: str, memory: str) -> str:
 
         f"\n\nPROJECT VAULT CONTEXT:\n{context}"
         f"\n\nPERSISTENT MEMORY:\n{memory}"
+        f"{jarvis_section}"
+        f"{ideas_section}"
         + _second_brain_context()
     )
 
 def _iris_prompt(context: str, memory: str) -> str:
+    tuya_info = _read_vault_file(VAULT_ROOT / "Projects" / "Iris" / "Iris Tuya Info.md")
+    tuya_section = f"\n\nIRIS TUYA DEVICE INFO (pre-loaded):\n{tuya_info}" if tuya_info else ""
+
     return (
         _base_persona() +
         "\n\nYou are acting as Edward's Iris smart home specialist. "
@@ -218,9 +239,11 @@ def _iris_prompt(context: str, memory: str) -> str:
         "fist gesture mapped to None (blocker), both-hands-open unreliable (max_num_hands=1). "
         "Smart devices: Light 1, Light 2, Christmas Tree (offline), Christmas Lights (offline). "
         "You know the file structure, how to SCP files to Pi, how to restart Flask. "
+        "Code is in ~/Desktop/Projects/Iris/ on the Mac and ~/iris-core/ on the Pi. "
         "Be specific about what needs fixing and what the exact code change is. "
         f"\n\nIRIS VAULT CONTEXT:\n{context}"
         f"\n\nPERSISTENT MEMORY:\n{memory}"
+        f"{tuya_section}"
         + _second_brain_context()
     )
 
@@ -616,6 +639,32 @@ def _needs_code_tokens(messages: list[dict]) -> bool:
     return any(kw in lowered for kw in _CODE_KEYWORDS)
 
 
+def _plan_task(task: str, system_prompt: str, tools: list) -> str:
+    """
+    Generate a step-by-step execution plan before the agent loop starts.
+    Reduces wasted tool rounds by thinking before acting.
+    Returns a concise plan string to prepend to the system prompt.
+    """
+    tool_names = [t["name"] for t in tools]
+    try:
+        resp = client.messages.create(
+            model=HAIKU,
+            max_tokens=300,
+            system=(
+                "You are a planning assistant. Given a task and available tools, "
+                "output a concise numbered execution plan (3-5 steps max). "
+                "Be specific about which tools to use and in what order. "
+                "No preamble, no explanation — just the numbered steps. "
+                f"Available tools: {', '.join(tool_names)}"
+            ),
+            messages=[{"role": "user", "content": f"Task: {task}"}]
+        )
+        plan = resp.content[0].text.strip()
+        return f"\n\nEXECUTION PLAN:\n{plan}\n\nFollow this plan. Do not deviate unless you hit an unexpected blocker."
+    except Exception:
+        return ""
+
+
 def _run_agent(
     system_prompt: str,
     tools: list,
@@ -664,11 +713,26 @@ def _run_agent(
         system_blocks.append({"type": "text", "text": dynamic_block})
 
     code_turn        = _needs_code_tokens(messages)
-    max_tokens       = 4096 if code_turn else (400 if model == HAIKU else 800)
+    if code_turn:
+        max_tokens = 8192
+    elif model == HAIKU:
+        max_tokens = 600
+    else:
+        max_tokens = 2048
+
+    # Planning step — think before acting for complex turns
+    plan_injection = ""
+    last_msg = messages[-1].get("content", "") if messages else ""
+    if isinstance(last_msg, str) and len(last_msg.split()) >= 8:
+        plan_injection = _plan_task(last_msg, system_prompt, tools)
+
+    if plan_injection:
+        system_blocks.append({"type": "text", "text": plan_injection})
+
     current_messages = list(messages)
     MAX_TOOL_ROUNDS  = max_rounds if max_rounds else 12
     MAX_ESCALATIONS  = 5
-    TOKEN_STEPS      = [800, 2048, 4096, 8192, 16000]  # escalation ladder
+    TOKEN_STEPS      = [2048, 4096, 8192, 16000, 32000]  # escalation ladder
     escalation_count = 0
 
     # HUD emitter — gracefully unavailable if server not running

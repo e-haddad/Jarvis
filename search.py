@@ -721,3 +721,30 @@ def detect_heavy_coding_task(text: str) -> bool:
             return False
 
     return any(signal in lowered for signal in _HEAVY_CODING_SIGNALS)
+
+
+def detect_heavy_generation_task(text: str) -> bool:
+    """
+    Returns True if the request is a heavy generation task that should be
+    handed off to Claude Code rather than handled by the agent loop.
+    Heavy generation = long-form document creation that benefits from
+    a single large context window rather than iterative tool calls.
+    """
+    lowered = text.lower()
+    words = lowered.split()
+
+    if len(words) < 6:
+        return False
+
+    HEAVY_GENERATION_SIGNALS = {
+        "write a detailed", "write a comprehensive", "write a full",
+        "generate a full", "generate a detailed", "generate a comprehensive",
+        "create a detailed", "create a comprehensive",
+        "write the entire", "write the whole",
+        "full documentation", "complete documentation",
+        "detailed report", "comprehensive report",
+        "full analysis", "detailed analysis",
+        "write a long", "write me a long",
+    }
+
+    return any(signal in lowered for signal in HEAVY_GENERATION_SIGNALS)
