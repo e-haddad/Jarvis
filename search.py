@@ -429,6 +429,178 @@ def get_weather(location: str = "Detroit, Michigan") -> str:
         f"Tomorrow: high {tmr_max}°C / low {tmr_min}°C, {tmr_code}, "
         f"precip {tmr_precip}in, max wind {tmr_wind}km/h."
     )
+# ── Spotify Playback ───────────────────────────────────────────────────────────
+
+def play_on_spotify(query: str, media_type: str = "track") -> str:
+    """
+    Search Spotify and immediately start playing the best match.
+    Requires Spotify Premium and an active device.
+
+    media_type: "track" (default), "artist", "album", "playlist"
+
+    Examples:
+      play_on_spotify("Kendrick Lamar Not Like Us")           → plays the track
+      play_on_spotify("Drake", "artist")                      → plays Drake's top tracks
+      play_on_spotify("To Pimp a Butterfly", "album")         → plays the album
+      play_on_spotify("lofi hip hop", "playlist")             → plays matching playlist
+    """
+    import urllib.request as _req
+    import json as _json
+
+    query      = query.strip()
+    media_type = media_type.lower().strip()
+
+    if media_type not in ("track", "artist", "album", "playlist"):
+        media_type = "track"
+
+    if not query:
+        return "No search query provided."
+
+    # Hit the Jarvis FastAPI endpoint — avoids duplicating spotipy auth here
+    try:
+        import urllib.request
+        import json
+
+        payload = json.dumps({"query": query, "type": media_type}).encode("utf-8")
+        req = urllib.request.Request(
+            "http://127.0.0.1:8765/spotify/play-track",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            result = json.loads(r.read().decode("utf-8"))
+
+        if result.get("status") == "ok":
+            playing = result.get("playing", query)
+            return f"Playing {playing} on Spotify."
+        else:
+            msg = result.get("message", "unknown error")
+            # Friendly handling for common errors
+            if "No active device" in msg or "NO_ACTIVE_DEVICE" in msg:
+                return "Spotify isn't active on any device — open Spotify on your Mac or phone first, then try again."
+            if "Premium" in msg or "PREMIUM_REQUIRED" in msg:
+                return "Spotify Premium is required for playback control."
+            return f"Spotify playback failed: {msg}"
+
+    except Exception as e:
+        return f"Spotify playback failed: {e}"
+
+
+# ── URL Summarization ──────────────────────────────────────────────────────────
+
+def fetch_url_summary(url: str, mode: str = "general") -> str:
+    """
+    Fetch a URL and summarize its content using Haiku.
+
+    mode:
+      "general"  — general summary (default)
+      "job"      — extract role, company, location, requirements, salary, deadline
+      "article"  — extract key points and main argument
+
+    Returns a clean text summary ready to be spoken or displayed.
+    Handles paywalls and bot-blocked pages gracefully.
+    """
+    import urllib.request
+    import urllib.error
+    import json
+    import re
+
+    # ── Fetch the page ─────────────────────────────────────────────────────────
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+            }
+        )
+        with urllib.request.urlopen(req, timeout=15) as r:
+            raw = r.read().decode("utf-8", errors="ignore")
+    except urllib.error.HTTPError as e:
+        return f"Couldn't fetch that page — HTTP {e.code}. It may require login or be paywalled."
+    except urllib.error.URLError as e:
+        return f"Couldn't reach {url}: {e.reason}"
+    except Exception as e:
+        return f"Failed to fetch URL: {e}"
+
+    # ── Strip HTML to text ─────────────────────────────────────────────────────
+    # Remove scripts, styles, nav, footer
+    raw = re.sub(r"<(script|style|nav|footer|header)[^>]*>.*?</\1>", "", raw, flags=re.DOTALL | re.IGNORECASE)
+    # Remove all remaining tags
+    text = re.sub(r"<[^>]+>", " ", raw)
+    # Collapse whitespace
+    text = re.sub(r"\s+", " ", text).strip()
+    # Truncate to ~6000 chars — enough context for Haiku without blowing tokens
+    text = text[:6000]
+
+    if len(text) < 100:
+        return "Page content was too short or empty — it may be JavaScript-rendered or paywalled."
+
+    # ── Build prompt based on mode ─────────────────────────────────────────────
+    if mode == "job":
+        system = (
+            "You are Jarvis, Edward Haddad's AI assistant. "
+            "Extract the key details from this job posting and present them clearly. "
+            "Cover: role title, company, location (remote/hybrid/onsite), "
+            "key responsibilities (3-5 bullets), required qualifications, "
+            "preferred qualifications, salary/compensation if mentioned, "
+            "and application deadline if mentioned. "
+            "Be concise — Edward will use this to decide whether to apply."
+        )
+    elif mode == "article":
+        system = (
+            "You are Jarvis, Edward Haddad's AI assistant. "
+            "Summarize this article in 3-5 sentences. "
+            "Cover the main argument, key findings, and any actionable takeaways. "
+            "Be direct and concise."
+        )
+    else:
+        system = (
+            "You are Jarvis, Edward Haddad's AI assistant. "
+            "Summarize the key information from this webpage in 3-5 sentences. "
+            "Focus on what would be most useful to Edward. Be direct and concise."
+        )
+
+    # ── Call Haiku ─────────────────────────────────────────────────────────────
+    try:
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            return "Anthropic API key not set — can't summarize."
+
+        payload = json.dumps({
+            "model": "claude-haiku-4-5",
+            "max_tokens": 600,
+            "system": system,
+            "messages": [
+                {"role": "user", "content": f"URL: {url}\n\nPage content:\n{text}"}
+            ]
+        }).encode("utf-8")
+
+        req = urllib.request.Request(
+            "https://api.anthropic.com/v1/messages",
+            data=payload,
+            headers={
+                "Content-Type":      "application/json",
+                "x-api-key":         api_key,
+                "anthropic-version": "2023-06-01",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=30) as r:
+            result = json.loads(r.read().decode("utf-8"))
+
+        return result["content"][0]["text"].strip()
+
+    except Exception as e:
+        return f"Summary failed: {e}"
+
+
 # ── Claude Code Integration ────────────────────────────────────────────────────
 # Add these two functions to the bottom of search.py
 

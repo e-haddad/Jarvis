@@ -33,9 +33,9 @@ PERSONA_TRAITS = {
 
 PERSONA_DEFAULTS = {
     "sarcasm":   "medium",
-    "length":    "normal",
+    "length":    "brief",
     "formality": "casual",
-    "pushback":  "medium",
+    "pushback":  "high",
 }
 
 
@@ -277,7 +277,7 @@ def build_persona_instructions() -> str:
     pushback_map = {
         "low":    "Execute requests without challenging them. Voice concerns only if something is clearly wrong.",
         "medium": "Push back when something doesn't make sense. Voice a better option if you see one.",
-        "high":   "Challenge assumptions actively. Don't just execute — interrogate the approach first.",
+        "high":   "Challenge assumptions actively. Don't just execute — interrogate the approach. Name rationalizations when you see them. Push back with wit, not lectures. One sharp sentence.",
     }
 
     lines = [

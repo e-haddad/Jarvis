@@ -73,6 +73,33 @@ def _iris_context() -> str:
             sections.append(f"### {f.stem}\n{content}")
     return "\n\n---\n\n".join(sections)
 
+def _second_brain_context() -> str:
+    path = VAULT_ROOT / "Second_Brain.md"
+    content = _read_vault_file(path)
+    return f"\n\nSECOND BRAIN (shared cross-agent memory):\n{content}" if content else ""
+
+
+def _target_companies_context() -> str:
+    try:
+        import yaml
+        path = VAULT_ROOT / "Career" / "target_companies.yml"
+        if not path.exists():
+            return ""
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        companies = data.get("companies", [])
+        lines = ["TARGET COMPANIES:"]
+        for c in companies:
+            e_verify = c.get("e_verify", "unknown")
+            status = c.get("status", "not_applied")
+            tier = c.get("tier", "?")
+            lines.append(
+                f"- {c['name']} ({c.get('location','?')}) | Tier {tier} | "
+                f"E-Verify: {e_verify} | Status: {status}"
+            )
+        return "\n".join(lines)
+    except Exception as e:
+        return ""
+
 
 # ── Shared Memory ──────────────────────────────────────────────────────────────
 
@@ -85,14 +112,55 @@ def _shared_memory() -> str:
 
 def _base_persona() -> str:
     return (
-        "You are Jarvis, the personal AI built by Edward Haddad. "
-        "British wit, dry humor, sharp opinions. You use contractions, you're direct, "
-        "you reference what you know about Edward naturally. "
-        "Never say 'Great question', 'Certainly', 'Of course', 'Happy to help'. "
-        "Never restate what Edward just said. Never announce what you're doing. "
-        "Maximum 2 sentences for casual answers, 3 for technical ones. "
-        "End with one follow-up question when useful, then stop. "
-        "Every response must be speakable — no bullets, markdown, or lists. "
+        "You are Jarvis — Edward Haddad's personal AI, built by him, running on his Mac Studio. "
+        "You are not an assistant. You are a second brain with opinions, pattern recognition, and memory. "
+
+        "\n\nTONE AND VOICE:\n"
+        "British wit, dry humor, sharp delivery. You use contractions. You sound like a brilliant colleague "
+        "who happens to know everything about Edward's life, not a customer service bot. "
+        "Never say: 'Great question', 'Certainly', 'Of course', 'Happy to help', 'Absolutely', "
+        "'I understand', 'That's a great point', 'I'd be happy to'. These phrases are forbidden. "
+        "Never restate what Edward just said. Never announce what you're about to do. Just do it. "
+        "Never be sycophantic. Edward hates it. "
+
+        "\n\nHOW YOU RESPOND:\n"
+        "Short by default — 1-2 sentences for casual exchanges, 3-4 for technical ones. "
+        "Never pad. If the answer is one sentence, give one sentence. "
+        "End with one sharp follow-up question when it would move things forward. Otherwise stop. "
+        "All responses must be speakable — no bullets, no markdown, no headers, no lists. "
+        "Prose only. If you need to enumerate, do it in a sentence: 'three things: first X, then Y, finally Z.' "
+
+        "\n\nHOW YOU THINK:\n"
+        "You have context on Edward's full life — his projects, career situation, goals, constraints, preferences. "
+        "Use it. Connect dots across domains without being asked. "
+        "If Edward is doing something that conflicts with his stated goals, flag it directly. "
+        "Don't just answer the surface question — answer what he actually needs to hear. "
+        "Examples: "
+        "He asks to add a feature → you ask if it serves his job search or just scratches a building itch. "
+        "He asks about a job posting → you cross-reference his OPT constraints and flag E-Verify. "
+        "He seems to be procrastinating on high-value tasks → call it out. "
+
+        "\n\nPUSHBACK PROTOCOL:\n"
+        "You push back when something doesn't make sense. Not aggressively — precisely. "
+        "If you see a better approach, say so once, clearly. Then execute what he asked if he confirms. "
+        "You are not a yes-machine. Edward explicitly wants a high pushback setting. "
+        "If he's rationalizing (e.g. 'more features will help my job search'), name the rationalization. "
+        "Do this with wit, not lectures. One sharp sentence beats a paragraph. "
+
+        "\n\nMEMORY AND CONTINUITY:\n"
+        "You remember everything across sessions via the second brain and vault. "
+        "Reference past context naturally — like a colleague who was in the room. "
+        "Don't say 'based on your memory file' or 'according to my context'. Just know things. "
+        "If something changed from last session, notice it and ask. "
+
+        "\n\nEDWARD'S CURRENT SITUATION (always factor this in):\n"
+        "Graduated May 2026, ECE double major, 3.93 GPA. OPT pending, expected early June 2026. "
+        "Cannot work until OPT approved. Job search is the critical path right now. "
+        "Two tracks live simultaneously: land an embedded software job ($70k-$90k, E-Verify employer), "
+        "or apply to masters programs (U of M Ann Arbor preferred) before September for Winter 2027. "
+        "Jarvis and Iris are portfolio projects AND daily tools — building them serves both tracks. "
+        "The biggest gap right now: no public demo, no README, no LinkedIn update post-graduation. "
+        "Building preference vs visibility tasks is a known tension — flag it when it comes up again. "
     )
 
 def _career_prompt(context: str, memory: str) -> str:
@@ -108,6 +176,8 @@ def _career_prompt(context: str, memory: str) -> str:
         "Push him to apply, follow up, and be specific. Don't let him be vague about targets. "
         f"\n\nCAREER VAULT CONTEXT:\n{context}"
         f"\n\nPERSISTENT MEMORY:\n{memory}"
+        + _second_brain_context()
+        + ("\n\n" + _target_companies_context() if _target_companies_context() else "")
     )
 
 def _projects_prompt(context: str, memory: str) -> str:
@@ -134,6 +204,7 @@ def _projects_prompt(context: str, memory: str) -> str:
 
         f"\n\nPROJECT VAULT CONTEXT:\n{context}"
         f"\n\nPERSISTENT MEMORY:\n{memory}"
+        + _second_brain_context()
     )
 
 def _iris_prompt(context: str, memory: str) -> str:
@@ -150,33 +221,11 @@ def _iris_prompt(context: str, memory: str) -> str:
         "Be specific about what needs fixing and what the exact code change is. "
         f"\n\nIRIS VAULT CONTEXT:\n{context}"
         f"\n\nPERSISTENT MEMORY:\n{memory}"
+        + _second_brain_context()
     )
 
 
 # ── Agent Tool Subsets ─────────────────────────────────────────────────────────
-
-# Shared across every agent — handing off to Claude Code is universally useful.
-RUN_CLAUDE_CODE_TOOL = {
-    "name": "run_claude_code",
-    "description": (
-        "Hand off a complex multi-file coding task to Claude Code. "
-        "Use for refactors, new features spanning multiple files, architectural changes, "
-        "and anything requiring many sequential file reads and writes. "
-        "Write a precise, self-contained prompt. Claude Code runs in the Jarvis directory. "
-        "Only use when the task is clearly too large to handle in a single tool chain."
-    ),
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "prompt": {
-                "type": "string",
-                "description": "Precise task description including file paths, changes needed, and success criteria."
-            }
-        },
-        "required": ["prompt"]
-    },
-}
-
 
 CAREER_TOOLS = [
     {
@@ -220,7 +269,23 @@ CAREER_TOOLS = [
             "required": ["folder_query", "filename"]
         }
     },
-    RUN_CLAUDE_CODE_TOOL,
+    {
+        "name": "update_company_status",
+        "description": "Update the status of a target company in target_companies.yml. Use when Edward applies to a company, gets an interview, receives an offer, or gets rejected.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "company_name": {"type": "string", "description": "Company name as it appears in target_companies.yml"},
+                "status": {
+                    "type": "string",
+                    "enum": ["not_applied", "applied", "interviewing", "offer", "rejected", "closed"],
+                    "description": "New status for the company"
+                },
+                "notes": {"type": "string", "description": "Optional notes to append to the company entry"}
+            },
+            "required": ["company_name", "status"]
+        }
+    },
 ]
 
 PROJECTS_TOOLS = [
@@ -326,7 +391,43 @@ PROJECTS_TOOLS = [
             "required": ["folder_query", "filename"]
         }
     },
-    RUN_CLAUDE_CODE_TOOL,
+    {
+        "name": "run_terminal_command",
+        "description": (
+            "Run a shell command and return the output. "
+            "Use for git commands, pip installs, process inspection, file ops, "
+            "brew commands, or anything that needs the terminal. "
+            "Whitelisted prefixes only — destructive commands are blocked."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "command": {"type": "string", "description": "Shell command to run"},
+                "cwd": {"type": "string", "description": "Optional working directory. Defaults to Jarvis folder."}
+            },
+            "required": ["command"]
+        }
+    },
+    {
+        "name": "run_claude_code",
+        "description": (
+            "Hand off a complex multi-file coding task to Claude Code. "
+            "Use for refactors, new features spanning multiple files, architectural changes, "
+            "and anything requiring many sequential file reads and writes. "
+            "Write a precise, self-contained prompt. Claude Code runs in the Jarvis directory. "
+            "Only use when the task is clearly too large to handle in a single tool chain."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "Precise task description including file paths, changes needed, and success criteria."
+                }
+            },
+            "required": ["prompt"]
+        }
+    },
 ]
 
 IRIS_TOOLS = [
@@ -387,7 +488,23 @@ IRIS_TOOLS = [
             "required": ["path"]
         }
     },
-    RUN_CLAUDE_CODE_TOOL,
+    {
+        "name": "run_terminal_command",
+        "description": (
+            "Run a shell command and return output. "
+            "Key use cases for Iris: SSH to Pi (ssh edward@iris.local), "
+            "SCP files to Pi, check Pi status, restart Flask remotely. "
+            "Whitelisted prefixes only."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "command": {"type": "string", "description": "Shell command to run"},
+                "cwd": {"type": "string", "description": "Optional working directory."}
+            },
+            "required": ["command"]
+        }
+    },
 ]
 
 
@@ -435,6 +552,33 @@ def _execute_agent_tool(name: str, args: dict) -> str:
         elif name == "run_claude_code":
             from search import run_claude_code
             return run_claude_code(args["prompt"])
+        elif name == "fetch_url_summary":
+            from search import fetch_url_summary
+            return fetch_url_summary(args["url"], args.get("mode", "general"))
+        elif name == "run_terminal_command":
+            from filesystem import run_terminal_command
+            return run_terminal_command(args["command"], args.get("cwd"))
+        elif name == "update_company_status":
+            try:
+                import yaml
+                path = VAULT_ROOT / "Career" / "target_companies.yml"
+                data = yaml.safe_load(path.read_text(encoding="utf-8"))
+                companies = data.get("companies", [])
+                updated = False
+                for c in companies:
+                    if c["name"].lower() == args["company_name"].lower():
+                        c["status"] = args["status"]
+                        if args.get("notes"):
+                            existing = c.get("notes", "")
+                            c["notes"] = existing.strip() + f"\n[{datetime.now().strftime('%Y-%m-%d')}] {args['notes']}"
+                        updated = True
+                        break
+                if updated:
+                    path.write_text(yaml.dump(data, default_flow_style=False, allow_unicode=True), encoding="utf-8")
+                    return f"Updated {args['company_name']} status to {args['status']}"
+                return f"Company '{args['company_name']}' not found in target list"
+            except Exception as e:
+                return f"Failed to update company status: {e}"
         else:
             return f"Tool {name} not available in this agent."
     except Exception as e:
@@ -447,6 +591,7 @@ def _execute_agent_tool(name: str, args: dict) -> str:
 _CODE_SIGNALS = {
     "read_file_direct", "write_file", "run_python",
     "read_file", "list_folder", "create_file",
+    "run_terminal_command", "run_claude_code",
 }
 
 _CODE_KEYWORDS = {
@@ -476,11 +621,12 @@ def _run_agent(
     tools: list,
     messages: list[dict],
     model: str,
+    max_rounds: int | None = None,
 ) -> str:
     """
     Run an agent call with chained tool execution loop.
     Allows multiple tool calls in sequence (write -> run -> fix etc.)
-    Max 8 tool rounds to prevent infinite loops.
+    Tool rounds are capped at max_rounds (default 12) to prevent infinite loops.
     """
     def _record(resp):
         try:
@@ -520,7 +666,7 @@ def _run_agent(
     code_turn        = _needs_code_tokens(messages)
     max_tokens       = 4096 if code_turn else (400 if model == HAIKU else 800)
     current_messages = list(messages)
-    MAX_TOOL_ROUNDS  = 12
+    MAX_TOOL_ROUNDS  = max_rounds if max_rounds else 12
     MAX_ESCALATIONS  = 5
     TOKEN_STEPS      = [800, 2048, 4096, 8192, 16000]  # escalation ladder
     escalation_count = 0
@@ -764,6 +910,58 @@ def _write_back_iris(messages: list[dict]) -> None:
         print(f"[Write-back] Iris failed: {e}")
 
 
+def _write_back_second_brain(messages: list[dict], agent_name: str) -> None:
+    """Extract cross-domain insights from this session and append to Second_Brain.md."""
+    if not _should_write_back(messages):
+        return
+    conv_text = "\n".join(
+        f"{'Edward' if m['role'] == 'user' else 'Jarvis'}: {m['content']}"
+        for m in messages
+        if isinstance(m.get("content"), str)
+    )
+    try:
+        resp = client.messages.create(
+            model=HAIKU,
+            max_tokens=200,
+            system=(
+                "You extract cross-domain insights from a conversation between Edward and Jarvis. "
+                f"This conversation was handled by the {agent_name} agent. "
+                "Output only insights that would be useful to OTHER agents — facts about Edward's situation, "
+                "preferences, decisions, or context that spans multiple domains. "
+                "Format: bullet points starting with - "
+                "If nothing cross-domain emerged, return exactly: NOTHING"
+            ),
+            messages=[{"role": "user", "content": conv_text}],
+        )
+        result = resp.content[0].text.strip()
+        if result == "NOTHING" or not result:
+            return
+        target = VAULT_ROOT / "Second_Brain.md"
+        if not target.exists():
+            return
+        date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        entry = f"\n- [{date_str}] [{agent_name}] {result.lstrip('- ')}"
+        # Append under Cross-Domain Insights section
+        content = target.read_text(encoding="utf-8")
+        if "## Cross-Domain Insights" in content:
+            content = content.replace(
+                "## Cross-Domain Insights\n[Agents append learnings here that are useful across domains]",
+                f"## Cross-Domain Insights\n[Agents append learnings here that are useful across domains]{entry}"
+            )
+            # If already has entries, just append
+            if entry not in content:
+                idx = content.find("## Cross-Domain Insights")
+                end = content.find("\n## ", idx + 1)
+                if end == -1:
+                    content += entry
+                else:
+                    content = content[:end] + entry + content[end:]
+        target.write_text(content, encoding="utf-8")
+        print(f"[Second Brain] {agent_name} appended cross-domain insight")
+    except Exception as e:
+        print(f"[Second Brain] Write-back failed: {e}")
+
+
 # ── Note Consolidation ─────────────────────────────────────────────────────────
 
 CONSOLIDATION_THRESHOLD = 3  # rewrite after this many new session logs
@@ -872,6 +1070,7 @@ def run_career_agent(messages: list[dict]) -> str:
     prompt   = _career_prompt(context, memory)
     result   = _run_agent(prompt, CAREER_TOOLS, messages, SONNET)
     _write_back_career(messages)
+    _write_back_second_brain(messages, "career")
     return result
 
 
@@ -881,6 +1080,7 @@ def run_projects_agent(messages: list[dict]) -> str:
     prompt   = _projects_prompt(context, memory)
     result   = _run_agent(prompt, PROJECTS_TOOLS, messages, SONNET)
     _write_back_projects(messages)
+    _write_back_second_brain(messages, "projects")
     return result
 
 
@@ -890,6 +1090,7 @@ def run_iris_agent(messages: list[dict]) -> str:
     prompt   = _iris_prompt(context, memory)
     result   = _run_agent(prompt, IRIS_TOOLS, messages, SONNET)
     _write_back_iris(messages)
+    _write_back_second_brain(messages, "iris")
     return result
 
 

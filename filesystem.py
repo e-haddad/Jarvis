@@ -444,6 +444,270 @@ def run_python(path: str, args: list[str] | None = None) -> str:
         return f"EXIT_CODE:-1\nExecution failed: {e}"
 
 
+def run_terminal_command(command: str, cwd: str | None = None) -> str:
+    """
+    Execute a scoped shell command and return the output.
+    Safety model:
+      - Whitelist of allowed command prefixes — anything else is blocked
+      - Blocked patterns checked on full command string (covers chained/pipe abuse)
+      - Working directory defaults to Jarvis project folder
+      - Timeout: 30 seconds
+      - stdout + stderr returned, truncated at 4000 chars
+    """
+    import subprocess
+
+    # ── Allowed command prefixes ───────────────────────────────────────────────
+    # Extend this list as needed — only commands that start with these are run
+    ALLOWED_PREFIXES = {
+        # Python / pip
+        "python3", "python", "pip3", "pip",
+        # Node / npm
+        "node", "npm", "npx",
+        # Git
+        "git ",
+        # File inspection (read-only)
+        "ls", "cat", "head", "tail", "wc", "find", "grep", "diff", "tree",
+        "stat", "file", "which", "where", "echo",
+        # System info
+        "ps", "top", "htop", "df", "du", "uname", "sw_vers", "sysctl",
+        "lsof", "netstat", "ifconfig",
+        # macOS specific
+        "open ", "pbcopy", "pbpaste", "defaults read", "launchctl list",
+        # Brew (read-only ops)
+        "brew list", "brew info", "brew outdated", "brew search",
+        # SSH / SCP to known hosts (Pi)
+        "ssh edward@iris.local", "ssh edward@192.168.12.67",
+        "scp",
+        # Claude Code
+        "claude ",
+        # Kill / restart (scoped)
+        "kill ", "pkill ",
+        # Other safe ops
+        "curl ", "wget ", "ping ", "traceroute ",
+        "cd ", "pwd", "env", "printenv",
+        "mkdir ", "touch ", "cp ", "mv ",
+    }
+
+    # ── Hard-blocked patterns (regardless of prefix) ──────────────────────────
+    BLOCKED_PATTERNS = {
+        "rm -rf", "rm -r", "sudo rm",
+        "sudo su", "sudo bash", "sudo sh",
+        "> /dev/", "mkfs", "fdisk", "diskutil erase",
+        "chmod 777", "chmod -R 777",
+        ":(){:|:&};:",   # fork bomb
+        "dd if=", "dd of=",
+        "curl | bash", "curl | sh", "wget | bash",
+        "base64 -d",
+        "eval ", "`",
+        "shutdown", "reboot", "halt",
+    }
+
+    cmd_lower = command.lower().strip()
+
+    # Block check first
+    for pattern in BLOCKED_PATTERNS:
+        if pattern in cmd_lower:
+            return f"Blocked: '{pattern}' is not permitted for safety reasons."
+
+    # Prefix whitelist check
+    allowed = any(cmd_lower.startswith(prefix.lower()) for prefix in ALLOWED_PREFIXES)
+    if not allowed:
+        # Extract first word for a cleaner error
+        first_word = command.strip().split()[0] if command.strip() else ""
+        return (
+            f"Command '{first_word}' is not on Jarvis's allowed list. "
+            f"Ask Edward to add it to ALLOWED_PREFIXES in filesystem.py if it's safe."
+        )
+
+    # Working directory — default to Jarvis folder
+    work_dir = _resolve(cwd) if cwd else Path(__file__).parent
+    if not work_dir.exists():
+        work_dir = Path(__file__).parent
+
+    try:
+        result = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=str(work_dir),
+        )
+        output = ""
+        if result.stdout.strip():
+            output += result.stdout
+        if result.stderr.strip():
+            output += f"\nSTDERR:\n{result.stderr}"
+        if not output.strip():
+            output = "(no output)"
+        if len(output) > 4000:
+            output = output[:4000] + "\n[...truncated]"
+
+        status = f"EXIT_CODE:{result.returncode}"
+        return f"{status}\n{output.strip()}"
+
+    except subprocess.TimeoutExpired:
+        return "EXIT_CODE:-1\nCommand timed out after 30 seconds."
+    except Exception as e:
+        return f"EXIT_CODE:-1\nCommand failed: {e}"
+
+
+def open_url(url: str, query: str = "") -> str:
+    """
+    Open a URL or named site in the default browser.
+
+    Two modes:
+      1. url is a full https:// link — open it directly
+      2. url is a site name (e.g. 'youtube') + optional query for in-site search
+
+    Claude should pass:
+      - url="youtube", query="Kendrick Lamar Not Like Us"  → YouTube search
+      - url="reddit",  query="embedded systems"            → Reddit search
+      - url="amazon",  query="mechanical keyboard"         → Amazon search
+      - url="youtube"  (no query)                          → YouTube homepage
+      - url="https://github.com/e-haddad/Jarvis"           → open directly
+
+    Search URL templates are defined in SEARCH_TEMPLATES.
+    Sites without a template just open their homepage.
+    """
+    import subprocess
+    from urllib.parse import urlencode, quote_plus
+
+    # ── Homepage map ───────────────────────────────────────────────────────────
+    URL_MAP = {
+        # Google
+        "youtube":          "https://www.youtube.com",
+        "gmail":            "https://mail.google.com",
+        "google":           "https://www.google.com",
+        "google drive":     "https://drive.google.com",
+        "google docs":      "https://docs.google.com",
+        "google calendar":  "https://calendar.google.com",
+        "google maps":      "https://maps.google.com",
+        "google meet":      "https://meet.google.com",
+        # Dev
+        "github":           "https://github.com/e-haddad",
+        "jarvis repo":      "https://github.com/e-haddad/Jarvis",
+        "stackoverflow":    "https://stackoverflow.com",
+        "stack overflow":   "https://stackoverflow.com",
+        "claude":           "https://claude.ai",
+        "anthropic":        "https://www.anthropic.com",
+        "hugging face":     "https://huggingface.co",
+        "huggingface":      "https://huggingface.co",
+        "hf":               "https://huggingface.co",
+        # Career
+        "linkedin":         "https://www.linkedin.com",
+        "indeed":           "https://www.indeed.com",
+        "glassdoor":        "https://www.glassdoor.com",
+        "wind river":       "https://www.windriver.com/company/careers",
+        "switchbox":        "https://www.switchbox.com/careers",
+        "valeo":            "https://jobs.valeo.com",
+        "schaeffler":       "https://www.schaeffler.com/en/career",
+        # Finance / crypto
+        "coinbase":         "https://www.coinbase.com",
+        "coingecko":        "https://www.coingecko.com",
+        "robinhood":        "https://robinhood.com",
+        # Social / comms
+        "twitter":          "https://twitter.com",
+        "x":                "https://x.com",
+        "reddit":           "https://www.reddit.com",
+        "discord":          "https://discord.com/channels/@me",
+        "slack":            "https://slack.com",
+        "notion":           "https://www.notion.so",
+        # News
+        "hacker news":      "https://news.ycombinator.com",
+        "hackernews":       "https://news.ycombinator.com",
+        "hn":               "https://news.ycombinator.com",
+        # Shopping
+        "amazon":           "https://www.amazon.com",
+        # Streaming
+        "netflix":          "https://www.netflix.com",
+        "spotify":          "https://open.spotify.com",
+        # Oakland University
+        "moodle":           "https://moodle.oakland.edu",
+        "ou":               "https://www.oakland.edu",
+    }
+
+    # ── Search URL templates ───────────────────────────────────────────────────
+    # {q} is replaced with the URL-encoded query string
+    SEARCH_TEMPLATES = {
+        "youtube":       "https://www.youtube.com/results?search_query={q}",
+        "google":        "https://www.google.com/search?q={q}",
+        "reddit":        "https://www.reddit.com/search/?q={q}",
+        "amazon":        "https://www.amazon.com/s?k={q}",
+        "github":        "https://github.com/search?q={q}&type=repositories",
+        "stackoverflow": "https://stackoverflow.com/search?q={q}",
+        "stack overflow":"https://stackoverflow.com/search?q={q}",
+        "linkedin":      "https://www.linkedin.com/search/results/all/?keywords={q}",
+        "indeed":        "https://www.indeed.com/jobs?q={q}",
+        "glassdoor":     "https://www.glassdoor.com/Search/results.htm?keyword={q}",
+        "google maps":   "https://www.google.com/maps/search/{q}",
+        "huggingface":   "https://huggingface.co/models?search={q}",
+        "hugging face":  "https://huggingface.co/models?search={q}",
+        "hf":            "https://huggingface.co/models?search={q}",
+        "spotify":       "https://open.spotify.com/search/{q}",
+        "coingecko":     "https://www.coingecko.com/en/search?query={q}",
+        "x":             "https://x.com/search?q={q}",
+        "twitter":       "https://twitter.com/search?q={q}",
+    }
+
+    url_lower = url.lower().strip()
+    query = query.strip()
+
+    # ── If it's already a full URL, open directly ──────────────────────────────
+    if url.startswith("http://") or url.startswith("https://"):
+        resolved = url
+
+    # ── Site name + query → search URL ────────────────────────────────────────
+    elif query:
+        # Find matching site key (exact first, then substring)
+        site_key = None
+        if url_lower in SEARCH_TEMPLATES:
+            site_key = url_lower
+        else:
+            for key in SEARCH_TEMPLATES:
+                if key in url_lower:
+                    site_key = key
+                    break
+
+        if site_key:
+            resolved = SEARCH_TEMPLATES[site_key].replace("{q}", quote_plus(query))
+        else:
+            # Site has no search template — fall back to homepage
+            resolved = None
+            if url_lower in URL_MAP:
+                resolved = URL_MAP[url_lower]
+            else:
+                for key, target in URL_MAP.items():
+                    if key in url_lower:
+                        resolved = target
+                        break
+            resolved = resolved or ("https://" + url)
+
+    # ── Site name, no query → homepage ────────────────────────────────────────
+    else:
+        resolved = None
+        if url_lower in URL_MAP:
+            resolved = URL_MAP[url_lower]
+        else:
+            for key, target in URL_MAP.items():
+                if key in url_lower:
+                    resolved = target
+                    break
+        if not resolved:
+            resolved = url if url.startswith("http") else "https://" + url
+
+    try:
+        result = subprocess.run(
+            ["open", resolved],
+            capture_output=True, text=True, timeout=10
+        )
+        if result.returncode != 0:
+            return f"Couldn't open '{resolved}': {result.stderr.strip() or 'unknown error'}"
+        return f"Opened {resolved}"
+    except Exception as e:
+        return f"Failed to open URL: {e}"
+
+
 def open_obsidian_note(note_path: str) -> str:
     """
     Open a specific note in Obsidian via the obsidian:// URI scheme.

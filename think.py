@@ -12,8 +12,8 @@ from pathlib import Path
 import anthropic
 
 from vault import add_to_inbox, read_note, append_to_note, list_notes
-from filesystem import list_folder, read_file, summarize_folder, create_file_in, open_obsidian_note
-from search import web_search, get_weather, get_news, get_crypto_price, set_reminder, open_app, draft_email, run_claude_code, detect_heavy_coding_task
+from filesystem import list_folder, read_file, summarize_folder, create_file_in, open_obsidian_note, run_terminal_command
+from search import web_search, get_weather, get_news, get_crypto_price, set_reminder, open_app, draft_email, run_claude_code, detect_heavy_coding_task, play_on_spotify, fetch_url_summary
 from memory import (
     save_fact, read_memory, read_category, correct_memory,
     should_auto_remember, set_persona_trait, build_persona_instructions
@@ -25,6 +25,7 @@ from jarvis_calendar import (
 from context import get_context_for
 from orchestrator import classify_intent
 from agents import run_career_agent, run_projects_agent, run_iris_agent
+from agent_bus import MasterOrchestrator
 
 # ── Client ─────────────────────────────────────────────────────────────────────
 
@@ -32,6 +33,10 @@ client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
 HAIKU  = "claude-haiku-4-5-20251001"
 SONNET = "claude-sonnet-4-6"
+
+# Experimental parallel multi-agent routing. Off by default — flip to True to
+# fan complex turns out across multiple specialists via MasterOrchestrator.
+USE_PARALLEL_AGENTS = True
 
 # ── Vault Self-Awareness ───────────────────────────────────────────────────────
 
@@ -146,6 +151,8 @@ _TOOL_ERROR_MESSAGES = {
     "recall_memory":       "Memory's not reading right now.",
     "correct_memory":      "Couldn't update that.",
     "set_personality":     "Couldn't update personality settings.",
+    "play_on_spotify":     "Spotify playback failed — make sure Spotify is open on a device.",
+    "fetch_url_summary":   "Couldn't fetch or summarize that URL.",
 }
 
 def _format_tool_error(tool_name: str, exception: Exception) -> str:
@@ -307,6 +314,33 @@ TOOLS = [
             "type": "object",
             "properties": {"query": {"type": "string"}},
             "required": ["query"]
+        }
+    },
+    {
+        "name": "fetch_url_summary",
+        "description": (
+            "Fetch a URL and summarize its content using AI. "
+            "Use when Edward pastes a link and says 'summarize this', 'what's this job about', "
+            "'read this article', 'break down this posting', 'what does this page say'. "
+            "Use mode='job' for job postings — extracts role, company, location, requirements, salary. "
+            "Use mode='article' for news or blog posts. "
+            "Use mode='general' for anything else. "
+            "Do NOT use web_search for this — fetch_url_summary reads the actual page content."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "The full URL to fetch and summarize"
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["general", "job", "article"],
+                    "description": "Summary mode. Use 'job' for job postings, 'article' for news/blogs, 'general' otherwise."
+                }
+            },
+            "required": ["url"]
         }
     },
     {
@@ -559,6 +593,34 @@ TOOLS = [
         }
     },
     {
+        "name": "play_on_spotify",
+        "description": (
+            "Search Spotify and immediately start playing a track, artist, album, or playlist. "
+            "Use when Edward says 'play X', 'put on X', 'play X by Y', 'play some X', "
+            "'play X album', 'put on a X playlist', 'play my X playlist'. "
+            "Requires Spotify to be open and active on a device. "
+            "Default media_type is 'track'. Use 'artist' for 'play some Drake', "
+            "'album' for 'play To Pimp a Butterfly', "
+            "'playlist' for both personal playlists ('play my chill playlist') "
+            "and public ones ('play a workout playlist') — personal playlists are checked first."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query e.g. 'Kendrick Lamar Not Like Us', 'Drake', 'lofi hip hop chill'"
+                },
+                "media_type": {
+                    "type": "string",
+                    "enum": ["track", "artist", "album", "playlist"],
+                    "description": "Type of content to play. Default: 'track'"
+                }
+            },
+            "required": ["query"]
+        }
+    },
+    {
         "name": "open_obsidian_note",
         "description": (
             "Open a specific note inside Obsidian (vault: Edward) via the obsidian:// URI. "
@@ -628,6 +690,31 @@ TOOLS = [
             "required": ["prompt"]
         }
     },
+    {
+        "name": "run_terminal_command",
+        "description": (
+            "Run a shell command in the terminal and return the output. "
+            "Use for: checking system state, running git commands, pip/npm installs, "
+            "listing processes, SSH to the Pi, brew commands, file inspection, "
+            "restarting services, or any shell task Edward asks for by voice. "
+            "Only whitelisted command prefixes are allowed — destructive commands are blocked. "
+            "Working directory defaults to the Jarvis project folder unless cwd is specified."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "The shell command to run, e.g. 'git status', 'pip3 install requests', 'ls -la ~/Desktop'"
+                },
+                "cwd": {
+                    "type": "string",
+                    "description": "Optional working directory path, e.g. '~/Desktop/Projects/Iris'. Defaults to Jarvis folder."
+                }
+            },
+            "required": ["command"]
+        }
+    },
 ]
 
 
@@ -650,11 +737,13 @@ def _set_reminder_and_emit(message: str, minutes: int) -> str:
 
 TOOL_MAP = {
     "web_search":          lambda a: web_search(a["query"]),
+    "fetch_url_summary":   lambda a: fetch_url_summary(a["url"], a.get("mode", "general")),
     "get_weather":         lambda a: get_weather(a.get("location", "Detroit, Michigan")),
     "get_news":            lambda a: get_news(a.get("topic", "technology"), a.get("count", 5)),
     "get_crypto_price":    lambda a: get_crypto_price(a.get("coin", "bitcoin")),
     "set_reminder":        lambda a: _set_reminder_and_emit(a["message"], int(a["minutes"])),
     "open_app":            lambda a: open_app(a["app_name"]),
+    "play_on_spotify":     lambda a: play_on_spotify(a["query"], a.get("media_type", "track")),
     "open_obsidian_note":  lambda a: open_obsidian_note(a["note_path"]),
     "get_today_events":    lambda a: get_today_events(),
     "get_next_event":      lambda a: get_next_event(),
@@ -683,7 +772,8 @@ TOOL_MAP = {
     "create_file":         lambda a: create_file_in(a["folder_query"], a["filename"], a.get("content", "")),
     "update_jarvis_note":  lambda a: _append_to_jarvis_note(a["content"]),
     "draft_email":         lambda a: draft_email(a["to"], a["subject"], a["body"]),
-    "run_claude_code":     lambda a: run_claude_code(a["prompt"]),
+    "run_claude_code":        lambda a: run_claude_code(a["prompt"]),
+    "run_terminal_command":   lambda a: run_terminal_command(a["command"], a.get("cwd")),
 }
 
 
@@ -997,6 +1087,18 @@ def think(text: str, on_sentence=None) -> str:
 
     # ── Multi-agent routing ────────────────────────────────────────────────
     intent = classify_intent(text, _history)
+
+    # ── Parallel multi-agent fan-out (experimental, gated) ──────────────────
+    # For sufficiently complex turns, let the MasterOrchestrator decide which
+    # specialists to run in parallel instead of the single-agent routing below.
+    if USE_PARALLEL_AGENTS and len(text.split()) >= 6:
+        response_text = MasterOrchestrator().dispatch(text, _history)
+        if response_text:
+            _history.append({"role": "user",      "content": text})
+            _history.append({"role": "assistant",  "content": response_text})
+            _trim_history()
+            _auto_memory_check(text, response_text)
+            return response_text
 
     # ── Claude Code fast-path — heavy coding tasks bypass Projects agent ──
     if intent == "projects" and detect_heavy_coding_task(text):

@@ -7,6 +7,7 @@
 
 import asyncio
 import json
+import os
 import threading
 from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -54,11 +55,14 @@ class ConnectionManager:
 
     def emit(self, data: dict):
         """Thread-safe emit from worker threads."""
-        if self._loop and self._loop.is_running():
-            asyncio.run_coroutine_threadsafe(self.broadcast(data), self._loop)
+        loop = self._loop or _server_loop
+        if loop and loop.is_running():
+            asyncio.run_coroutine_threadsafe(self.broadcast(data), loop)
 
 
 manager = ConnectionManager()
+
+_server_loop = None
 
 
 # ── Event helpers (called from worker threads) ─────────────────────────────────
@@ -80,6 +84,18 @@ def emit_agent(agent: str):
     # agent id or "" to clear
     manager.emit({"type": "agent", "value": agent})
 
+def emit_agent_start(agent_name: str):
+    manager.emit({"type": "agent_start", "agent": agent_name})
+
+def emit_agent_done(agent_name: str, elapsed: float):
+    manager.emit({"type": "agent_done", "agent": agent_name, "elapsed": round(elapsed, 1)})
+
+def emit_agent_timeout(agent_name: str):
+    manager.emit({"type": "agent_timeout", "agent": agent_name})
+
+def emit_agents_clear():
+    manager.emit({"type": "agents_clear"})
+
 def emit_usage():
     try:
         from usage_tracker import get_usage
@@ -100,6 +116,24 @@ def emit_timer(message: str, seconds: int):
 
 def emit_clear_log():
     manager.emit({"type": "clear_log"})
+
+
+# ── Test endpoint for parallel agent HUD animation ────────────────────────────
+
+@app.post("/test-agent-emit")
+async def test_agent_emit():
+    import asyncio
+    async def _run():
+        emit_agents_clear()
+        await asyncio.sleep(0.5)
+        emit_agent_start("projects")
+        emit_agent_start("finance")
+        await asyncio.sleep(3)
+        emit_agent_done("projects", 2.8)
+        await asyncio.sleep(1.5)
+        emit_agent_done("finance", 4.1)
+    asyncio.create_task(_run())
+    return {"status": "ok"}
 
 
 # ── WebSocket endpoint ─────────────────────────────────────────────────────────
@@ -179,24 +213,31 @@ def _handle_silent_input(text: str):
 
 HUD_FILE = Path(__file__).parent / "jarvis-hud.html"
 
+# ── Spotify auth helper ────────────────────────────────────────────────────────
+
+def _get_spotify():
+    """Return an authenticated spotipy client. Raises on failure."""
+    import spotipy
+    from spotipy.oauth2 import SpotifyOAuth
+    return spotipy.Spotify(auth_manager=SpotifyOAuth(
+        client_id=os.environ.get("SPOTIFY_CLIENT_ID"),
+        client_secret=os.environ.get("SPOTIFY_CLIENT_SECRET"),
+        redirect_uri="http://127.0.0.1:8765/spotify/callback",
+        scope="user-read-currently-playing user-read-playback-state user-modify-playback-state playlist-read-private playlist-read-collaborative",
+        cache_path=str(Path(__file__).parent / ".spotify_token"),
+        open_browser=False,
+    ))
+
+
+# ── Spotify endpoints ──────────────────────────────────────────────────────────
+
 @app.get("/spotify/now-playing")
 async def spotify_now_playing():
     """Fetch currently playing track from Spotify via spotipy."""
     try:
-        import os
-        import spotipy
-        from spotipy.oauth2 import SpotifyOAuth
         from fastapi.responses import JSONResponse
-
-        sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
-            client_id=os.environ.get("SPOTIFY_CLIENT_ID"),
-            client_secret=os.environ.get("SPOTIFY_CLIENT_SECRET"),
-            redirect_uri="http://localhost:8765/spotify/callback",
-            scope="user-read-currently-playing user-read-playback-state user-modify-playback-state",
-            cache_path=str(Path(__file__).parent / ".spotify_token"),
-            open_browser=False,
-        ))
-        current = sp.currently_playing()
+        sp      = _get_spotify()
+        current = sp.current_playback()
         if not current or not current.get("item"):
             return JSONResponse(None)
 
@@ -209,8 +250,12 @@ async def spotify_now_playing():
         images   = item.get("album", {}).get("images", [])
         art      = images[0]["url"] if images else None
 
-        return {"name": name, "artist": artist, "album": album, "art": art, "progress": progress, "duration": duration, "is_playing": current.get("is_playing", False)}
-    except Exception as e:
+        return {
+            "name": name, "artist": artist, "album": album, "art": art,
+            "progress": progress, "duration": duration,
+            "is_playing": current.get("is_playing", False),
+        }
+    except Exception:
         from fastapi.responses import JSONResponse
         return JSONResponse(None)
 
@@ -223,17 +268,7 @@ async def spotify_callback(code: str = None):
 @app.post("/spotify/pause")
 async def spotify_pause():
     try:
-        import os, spotipy
-        from spotipy.oauth2 import SpotifyOAuth
-        sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
-            client_id=os.environ.get("SPOTIFY_CLIENT_ID"),
-            client_secret=os.environ.get("SPOTIFY_CLIENT_SECRET"),
-            redirect_uri="http://127.0.0.1:8765/spotify/callback",
-            scope="user-read-currently-playing user-read-playback-state user-modify-playback-state",
-            cache_path=str(Path(__file__).parent / ".spotify_token"),
-            open_browser=False,
-        ))
-        sp.pause_playback()
+        _get_spotify().pause_playback()
         return {"status": "ok"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -242,17 +277,7 @@ async def spotify_pause():
 @app.post("/spotify/play")
 async def spotify_play():
     try:
-        import os, spotipy
-        from spotipy.oauth2 import SpotifyOAuth
-        sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
-            client_id=os.environ.get("SPOTIFY_CLIENT_ID"),
-            client_secret=os.environ.get("SPOTIFY_CLIENT_SECRET"),
-            redirect_uri="http://127.0.0.1:8765/spotify/callback",
-            scope="user-read-currently-playing user-read-playback-state user-modify-playback-state",
-            cache_path=str(Path(__file__).parent / ".spotify_token"),
-            open_browser=False,
-        ))
-        sp.start_playback()
+        _get_spotify().start_playback()
         return {"status": "ok"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -261,17 +286,7 @@ async def spotify_play():
 @app.post("/spotify/next")
 async def spotify_next():
     try:
-        import os, spotipy
-        from spotipy.oauth2 import SpotifyOAuth
-        sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
-            client_id=os.environ.get("SPOTIFY_CLIENT_ID"),
-            client_secret=os.environ.get("SPOTIFY_CLIENT_SECRET"),
-            redirect_uri="http://127.0.0.1:8765/spotify/callback",
-            scope="user-read-currently-playing user-read-playback-state user-modify-playback-state",
-            cache_path=str(Path(__file__).parent / ".spotify_token"),
-            open_browser=False,
-        ))
-        sp.next_track()
+        _get_spotify().next_track()
         return {"status": "ok"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -280,18 +295,114 @@ async def spotify_next():
 @app.post("/spotify/previous")
 async def spotify_previous():
     try:
-        import os, spotipy
-        from spotipy.oauth2 import SpotifyOAuth
-        sp = spotipy.Spotify(auth_manager=SpotifyOAuth(
-            client_id=os.environ.get("SPOTIFY_CLIENT_ID"),
-            client_secret=os.environ.get("SPOTIFY_CLIENT_SECRET"),
-            redirect_uri="http://127.0.0.1:8765/spotify/callback",
-            scope="user-read-currently-playing user-read-playback-state user-modify-playback-state",
-            cache_path=str(Path(__file__).parent / ".spotify_token"),
-            open_browser=False,
-        ))
-        sp.previous_track()
+        _get_spotify().previous_track()
         return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/calendar/next-event")
+async def calendar_next_event():
+    """Fetch the next Google Calendar event."""
+    try:
+        from fastapi.responses import JSONResponse
+        from jarvis_calendar import get_next_event
+        result = get_next_event()
+        if not result or result == "No upcoming events found.":
+            return JSONResponse(None)
+        # get_next_event() returns a formatted string — return it as summary
+        return {"summary": result}
+    except Exception:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(None)
+
+
+@app.get("/spotify/my-playlists")
+async def spotify_my_playlists():
+    """Return all of the user's playlists (name + uri)."""
+    try:
+        sp      = _get_spotify()
+        results = sp.current_user_playlists(limit=50)
+        playlists = []
+        while results:
+            for p in results["items"]:
+                if p:
+                    playlists.append({"name": p["name"], "uri": p["uri"]})
+            results = sp.next(results) if results.get("next") else None
+        return {"playlists": playlists}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/spotify/play-track")
+async def spotify_play_track(body: dict):
+    """
+    Search for a track/artist/playlist and start playing it.
+    Body: {"query": "Kendrick Lamar Not Like Us", "type": "track"}
+    type can be: track, artist, album, playlist (default: track)
+    For playlist type, checks user's own playlists first before public search.
+    """
+    try:
+        query      = body.get("query", "").strip()
+        media_type = body.get("type", "track")
+        if not query:
+            return {"status": "error", "message": "No query provided"}
+
+        sp = _get_spotify()
+
+        # ── Playlist: check user's own playlists first ─────────────────────────
+        if media_type == "playlist":
+            query_lower = query.lower()
+            results     = sp.current_user_playlists(limit=50)
+            matched_uri  = None
+            matched_name = None
+
+            while results and not matched_uri:
+                for p in results["items"]:
+                    if p and query_lower in p["name"].lower():
+                        matched_uri  = p["uri"]
+                        matched_name = p["name"]
+                        break
+                results = sp.next(results) if results.get("next") and not matched_uri else None
+
+            if matched_uri:
+                sp.start_playback(context_uri=matched_uri)
+                return {"status": "ok", "playing": matched_name}
+
+            # Fall through to public playlist search if not found in user's library
+            results = sp.search(q=query, type="playlist", limit=1)
+            items   = results.get("playlists", {}).get("items", [])
+            if not items:
+                return {"status": "error", "message": f"No playlist found for '{query}'"}
+            item = items[0]
+            sp.start_playback(context_uri=item["uri"])
+            return {"status": "ok", "playing": item.get("name", query)}
+
+        # ── Track / artist / album ─────────────────────────────────────────────
+        results = sp.search(q=query, type=media_type, limit=1)
+        items   = results.get(f"{media_type}s", {}).get("items", [])
+
+        if not items:
+            return {"status": "error", "message": f"Nothing found for '{query}'"}
+
+        item = items[0]
+
+        if media_type == "track":
+            sp.start_playback(uris=[item["uri"]])
+            name   = item.get("name", "")
+            artist = ", ".join(a["name"] for a in item.get("artists", []))
+            return {"status": "ok", "playing": f"{name} by {artist}"}
+
+        elif media_type == "artist":
+            sp.start_playback(context_uri=item["uri"])
+            return {"status": "ok", "playing": f"Artist radio for {item.get('name', '')}"}
+
+        elif media_type == "album":
+            sp.start_playback(context_uri=item["uri"])
+            return {"status": "ok", "playing": item.get("name", query)}
+
+        return {"status": "error", "message": f"Unsupported type: {media_type}"}
+
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -305,7 +416,9 @@ async def serve_hud():
 
 @app.on_event("startup")
 async def on_startup():
-    manager.set_loop(asyncio.get_event_loop())
+    global _server_loop
+    _server_loop = asyncio.get_event_loop()
+    manager.set_loop(_server_loop)
 
 
 def start_server(host="0.0.0.0", port=8765):
