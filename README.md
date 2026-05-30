@@ -1,247 +1,296 @@
-# Jarvis
+<div align="center">
 
-> A fully local, always-on AI assistant built for a Mac Studio. Voice-activated, multi-agent, with a live browser HUD and Obsidian vault integration.
+# 🤖 Jarvis
 
----
+**Personal AI built by Edward Haddad — inspired by Tony Stark's assistant.**
 
-## Overview
+*Wake word → transcription → parallel agents → voice response. All local, all live.*
 
-Jarvis is a personal AI system inspired by Tony Stark's assistant — built from scratch by [Edward Haddad](https://github.com/e-haddad). It runs entirely on a Mac Studio M4 Max, activates on a custom wake word, processes speech locally, routes queries through a parallel multi-agent architecture powered by Claude, and responds in a synthesized British voice via ElevenLabs.
+[![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![Claude](https://img.shields.io/badge/Claude-Sonnet%20%26%20Haiku-D97706?style=flat-square&logo=anthropic&logoColor=white)](https://anthropic.com)
+[![ElevenLabs](https://img.shields.io/badge/ElevenLabs-Flash%20v2.5-000000?style=flat-square)](https://elevenlabs.io)
+[![Whisper](https://img.shields.io/badge/Whisper-Turbo-412991?style=flat-square&logo=openai&logoColor=white)](https://github.com/openai/whisper)
+[![License](https://img.shields.io/badge/License-MIT-22C55E?style=flat-square)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-macOS-lightgrey?style=flat-square&logo=apple)](https://www.apple.com/macos/)
 
-It's not a wrapper around a chatbot. It's a second brain with memory, tools, opinions, and full access to a live Obsidian vault.
-
----
-
-## Demo
-
-> Wake word → transcription → parallel agents → spoken response → live HUD
-
-*(Demo video coming soon)*
+</div>
 
 ---
 
-## Architecture
+## ✨ What Is Jarvis?
+
+Jarvis is a fully voice-driven, locally-run personal AI assistant with a live browser HUD, parallel multi-agent architecture, and deep integration into my daily workflow.
+
+It's not a chatbot wrapper. Every layer — wake word detection, transcription, intent routing, agent orchestration, tool execution, and voice synthesis — is purpose-built and wired together from scratch.
+
+The pipeline runs end-to-end in **under two seconds**: wake word → Whisper transcription → intent classification → parallel specialist agents → streamed ElevenLabs voice response.
+
+---
+
+## 🎬 Pipeline Overview
 
 ```
-Microphone
-    │
-    ▼
-OpenWakeWord  ─────────────────── "Hey Jarvis" detected
-    │
-    ▼
-webrtcvad  ──────────────────────  VAD-based command recording (silence-terminated)
-    │
-    ▼
-Whisper (turbo)  ────────────────  Local speech-to-text transcription
-    │
-    ▼
-MasterOrchestrator  ─────────────  Sonnet 4.6 decides which agents to fan out to
-    │
-    ├─── Career Agent   ──────────  Job search, resume, applications, OPT/visa
-    ├─── Projects Agent ──────────  Jarvis, Iris, ChipIn, Billed — code and architecture
-    ├─── Iris Agent     ──────────  Gesture smart home, Raspberry Pi, Tuya devices
-    ├─── Architect Agent ─────────  System design, technical planning
-    ├─── Researcher Agent ────────  Web search, URL summarization
-    └─── General Agent  ──────────  Weather, calendar, memory, Q&A, chat
-    │
-    ▼
-Synthesizer  ────────────────────  Results merged into a single spoken response
-    │
-    ▼
-ElevenLabs Flash v2.5  ──────────  Custom British voice (Jarvis 1.0)
-    │                               Kokoro ONNX fallback if ElevenLabs is unavailable
-    ▼
-Browser HUD (port 8765)  ────────  Real-time status, agent panel, conversation log
+🎤 Mic  →  OpenWakeWord  →  Whisper Turbo  →  MasterOrchestrator
+                                                      │
+                    ┌─────────────────────────────────┤
+                    ▼         ▼          ▼             ▼
+               Career      Coder    Researcher    Architect    …
+                    │         │          │             │
+                    └─────────┴──────────┴─────────────┘
+                                    │
+                            Synthesizer (Sonnet)
+                                    │
+                    ElevenLabs Flash v2.5  →  🔊 Speaker
+                                    │
+                            WebSocket HUD  →  🌐 Browser
 ```
 
 ---
 
-## Features
+## 🚀 Features
 
-**Voice Pipeline**
-- Always-on wake word detection via OpenWakeWord (`hey_jarvis_v0.1`)
-- VAD-based command recording — silence-terminated, no fixed duration, 30s hard cap
-- Whisper turbo transcription (local, no cloud)
-- ElevenLabs Flash v2.5 TTS — custom British male voice, sentence-level streaming
-- Kokoro ONNX v1.0 local fallback (`bm_george`, `en-gb`)
+### Core Voice Pipeline
+- **Always-on wake word** — "Hey Jarvis" via OpenWakeWord, zero-CPU standby
+- **Whisper Turbo transcription** — fast, accurate, runs locally
+- **Sentence-level streaming TTS** — ElevenLabs Flash v2.5 starts playing before the full response is generated; Kokoro ONNX offline fallback included
+- **Silent mode** — disable voice, interact entirely through the browser HUD text input
 
-**Multi-Agent Architecture**
-- `MasterOrchestrator` uses Claude Sonnet to decide which specialists to spawn per turn
-- Agents run in parallel via `asyncio` thread-pool fan-out
-- Per-agent 60s timeout — one slow agent never stalls the batch
-- Keyword-first intent classification (no API cost on obvious queries); Haiku fallback for ambiguous ones
-- Model routing: Haiku 4.5 for fast/simple turns, Sonnet 4.6 for complex reasoning and code
+### Multi-Agent Architecture
+- **MasterOrchestrator** — Sonnet-powered router that fans a request out across multiple specialists in parallel, then synthesizes a unified response
+- **8 specialist agents** — each with its own system prompt, tool subset, and vault context
+- **Dual-model routing** — Haiku for fast/cheap turns (calendar, vault reads, quick Q&A); Sonnet for reasoning, coding, multi-step tasks
+- **Per-agent timeouts** — one slow agent never stalls the rest
 
-**Tools**
-- Web search via Brave Search API
-- Real-time weather via Open-Meteo (no key required)
-- News headlines via Brave Search
-- Crypto prices via CoinGecko
-- Google Calendar — read events, create events, daily briefing
-- Gmail integration — background polling, new message summaries
-- Spotify — play music, control playback by voice
-- Reminders — spoken alerts with HUD timer panel
-- App launcher — open any macOS app by voice
-- URL summarization — fetch and summarize any URL (job postings, articles, etc.)
-- Terminal command execution (whitelisted paths)
-- Claude Code integration — hands off complex coding tasks to a sub-agent
+### Live Browser HUD
+- Real-time pipeline status: standby → listening → thinking → speaking
+- Parallel agent panel with pulse animations
+- Full conversation log
+- Text input for silent mode
+- Accessible remotely via Tailscale: `http://<tailscale-ip>:8765`
 
-**Obsidian Vault Integration**
-- Full read/write access to `~/Desktop/OBS/Edward/` vault
-- Add to inbox (LLM-generated note titles), read notes, append to notes, list folders
-- Vault-backed memory for Career, Projects, Iris, and Second Brain context
-- Each specialist agent loads its own vault section as live context
+### Tools & Integrations
+- 🔍 **Web search** — live queries via search API
+- 📅 **Google Calendar** — read today's events, upcoming schedule, create events by voice
+- 📬 **Gmail** — periodic background pulls, inbox summaries, draft emails
+- 🎵 **Spotify** — voice-controlled playback
+- 💰 **Crypto** — live BTC price
+- 📝 **Obsidian vault** — read notes, append to notes, add to inbox, list vault files
+- 🧠 **Persistent memory** — cross-session facts, persona traits, second brain context
+- 💻 **Terminal** — run shell commands and scripts by voice
+- ⚡ **Claude Code** — hand heavy multi-file coding tasks to a capable sub-agent
+- 🌐 **URL summarizer** — fetch and summarize any web page (job postings, articles)
 
-**Persistent Memory**
-- Markdown-based memory across sessions (`Jarvis_Memory.md`)
-- Categories: PROJECTS, PREFS, FACTS, GOALS, CORRECTIONS, PERSONA
-- Auto-memory: detects `"I prefer"`, `"going forward"`, etc. and saves silently
-- Explicit memory: `"Remember that..."` pins a fact with a 📌 tag
-- Personality traits adjustable at runtime: sarcasm, length, formality, pushback
-
-**Startup Briefing**
-- On wake, silently checks calendar, inbox count, and last session topic
-- Proactive checks: stale projects, job application staleness, weekly review nudge
-- Surfaces only what's actionable — stays silent otherwise
-
-**Browser HUD**
-- FastAPI + WebSocket server at `localhost:8765`
-- Real-time status indicator: standby → listening → thinking → speaking
-- Live conversation log (user and Jarvis turns)
-- Parallel agent panel with pulse animations and per-agent elapsed time
-- Model indicator (Haiku vs Sonnet), token usage tracker
-- Silent mode toggle — switch from voice to browser text input mid-session
-- Spotify now-playing widget with album art
-- Tailscale remote access: `100.75.165.120:8765`
-
-**Modes**
-- `python3.11 main.py` — full voice mode
-- `python3.11 main.py --text` — terminal text mode, no HUD
-- `python3.11 main.py --silent` — server-only mode, HUD text input only
-- Auto-fallback to server-only if no microphone is detected
+### Intelligence Layer
+- **Keyword-first intent classification** — fast path with zero API cost; LLM fallback only for ambiguous inputs
+- **Vault-aware context injection** — each agent gets the relevant slice of the Obsidian vault before responding
+- **Pushback protocol** — Jarvis has opinions and voices them; tunable pushback level
+- **Startup brief** — weather, calendar, and news summary spoken at activation
 
 ---
 
-## Tech Stack
+## 🏗️ Architecture
+
+### Specialist Agents
+
+| Agent | Responsibility | Model |
+|---|---|---|
+| **Career** | Job applications, resume, cover letters, outreach, OPT/visa | Sonnet |
+| **Coder** | Code implementation, file edits, debugging, Claude Code handoff | Sonnet |
+| **Architect** | Technical design, system architecture, trade-off analysis | Sonnet |
+| **Researcher** | Web search, URL summarization, fact gathering | Sonnet |
+| **Projects** | Jarvis, Iris, ChipIn, Billed — project status and decisions | Sonnet |
+| **Iris** | Smart home, gesture engine, Raspberry Pi, Tuya devices | Sonnet |
+| **Finance** | Crypto prices, financial queries | Haiku |
+| **General** | Weather, calendar, memory, Spotify, conversation | Haiku |
+
+### Key Files
+
+```
+jarvis/
+├── main.py              # Entry point — voice loop, text mode, server bootstrap
+├── think.py             # Core reasoning — Claude API, tool calling, model routing
+├── orchestrator.py      # Intent classifier — keyword fast path + Haiku fallback
+├── agent_bus.py         # Parallel multi-agent bus — MasterOrchestrator + fan-out
+├── agents.py            # Specialist agents — prompts, tool subsets, vault context
+├── listen.py            # Wake word detection (OpenWakeWord) + command recording
+├── transcribe.py        # Whisper Turbo transcription
+├── speak.py             # TTS — ElevenLabs Flash v2.5 streaming + Kokoro fallback
+├── server.py            # FastAPI server — WebSocket HUD, REST API
+├── jarvis-hud.html      # Browser HUD — agent panel, status, conversation log
+├── vault.py             # Obsidian vault tools — read/write notes, inbox
+├── memory.py            # Persistent cross-session memory and persona traits
+├── briefing.py          # Startup brief — weather + calendar + news
+├── jarvis_calendar.py   # Google Calendar integration
+├── gmail_pulls.py       # Background Gmail polling
+├── search.py            # Web search, weather, crypto, Spotify, URL fetch, Claude Code
+├── filesystem.py        # File system tools — list/read/create files, terminal
+├── context.py           # Vault context builder — per-intent knowledge injection
+├── usage_tracker.py     # API token and cost tracking
+└── btc_price.py         # Live Bitcoin price
+```
+
+---
+
+## 🛠️ Tech Stack
 
 | Layer | Technology |
 |---|---|
-| Language | Python 3.11 |
-| LLM | Anthropic Claude (Haiku 4.5 + Sonnet 4.6) |
-| Wake Word | OpenWakeWord (`hey_jarvis_v0.1`, ONNX) |
-| Voice Activity Detection | webrtcvad |
-| Speech-to-Text | OpenAI Whisper (turbo, local) |
-| Text-to-Speech | ElevenLabs Flash v2.5 + Kokoro ONNX v1.0 (fallback) |
-| Backend Server | FastAPI + uvicorn |
-| Real-time UI | WebSocket + vanilla JS browser HUD |
-| Calendar | Google Calendar API |
-| Email | Gmail API |
-| Music | Spotipy (Spotify Web API) |
-| Web Search | Brave Search API |
-| Crypto | CoinGecko API (no key) |
-| Weather | Open-Meteo API (no key) |
-| Memory / Vault | Obsidian Markdown vault (read/write) |
-| Audio | sounddevice, pydub, numpy |
-| Hardware | Mac Studio M4 Max 36GB |
+| **LLM** | Anthropic Claude (Sonnet 4.6 + Haiku 4.5) |
+| **Wake Word** | OpenWakeWord |
+| **Transcription** | OpenAI Whisper Turbo (local) |
+| **TTS (primary)** | ElevenLabs Flash v2.5 — custom British voice |
+| **TTS (fallback)** | Kokoro ONNX — fully offline |
+| **Audio I/O** | sounddevice, PyAudio, pydub |
+| **Web Server** | FastAPI + WebSocket (uvicorn) |
+| **Calendar** | Google Calendar API (oauth2) |
+| **Email** | Gmail API (oauth2) |
+| **Music** | Spotify Web API |
+| **Smart Home** | Tuya Cloud API (via Iris) |
+| **Vault** | Obsidian markdown files |
+| **Hardware** | Mac Studio M4 Max 36GB |
+| **Language** | Python 3.11 |
 
 ---
 
-## Project Structure
-
-```
-Jarvis/
-├── main.py              # Entry point — voice loop, text mode, silent mode
-├── listen.py            # Wake word detection + VAD-based command recording
-├── transcribe.py        # Whisper speech-to-text
-├── think.py             # Core reasoning — tool calling, model routing, agent dispatch
-├── speak.py             # ElevenLabs TTS with Kokoro ONNX fallback
-├── orchestrator.py      # Intent classifier — keyword-first, Haiku fallback
-├── agents.py            # Specialist agents — career, projects, iris, general
-├── agent_bus.py         # Parallel agent execution — MasterOrchestrator, fan-out, merge
-├── server.py            # FastAPI + WebSocket server — HUD, silent mode, Spotify endpoints
-├── jarvis-hud.html      # Browser HUD — real-time status, agent panel, conversation log
-├── vault.py             # Obsidian vault operations — read, write, append, list
-├── memory.py            # Persistent cross-session memory
-├── briefing.py          # Startup briefing — calendar, inbox, proactive checks
-├── search.py            # Web search, news, crypto, weather, reminders, Spotify, apps
-├── filesystem.py        # Permission-scoped filesystem access
-├── jarvis_calendar.py   # Google Calendar read/write
-├── gmail_pulls.py       # Background Gmail polling
-├── context.py           # Per-intent vault context loader
-├── usage_tracker.py     # Token usage tracking across sessions
-├── btc_price.py         # Standalone crypto price utility
-├── kokoro-v1.0.onnx     # Kokoro TTS model weights
-├── voices-v1.0.bin      # Kokoro voice pack
-└── permissions.json     # Filesystem permission envelope
-```
-
----
-
-## Setup
+## ⚙️ Setup & Installation
 
 ### Prerequisites
-
-- macOS (tested on Mac Studio M4 Max)
 - Python 3.11
-- Homebrew
+- macOS (tested on Mac Studio M4 Max; adaptable to Linux)
+- A microphone for voice mode
+- Accounts and API keys for: Anthropic, ElevenLabs, Google (Calendar + Gmail), Spotify
 
-### Install dependencies
+### 1. Clone the repo
 
 ```bash
-pip3.11 install anthropic openai-whisper sounddevice webrtcvad openwakeword \
-               kokoro-onnx fastapi uvicorn spotipy google-api-python-client \
-               google-auth-oauthlib requests pydub numpy scipy tzlocal
+git clone https://github.com/e-haddad/Jarvis.git
+cd Jarvis
 ```
 
-### Environment variables
-
-Add to `~/.zshrc`:
+### 2. Install dependencies
 
 ```bash
-export ANTHROPIC_API_KEY="your_key"
-export ELEVENLABS_API_KEY="your_key"
-export BRAVE_API_KEY="your_key"
-export SPOTIFY_CLIENT_ID="your_id"
-export SPOTIFY_CLIENT_SECRET="your_secret"
+pip install anthropic openai-whisper sounddevice numpy scipy pyaudio pydub \
+            openwakeword fastapi uvicorn websockets requests \
+            google-api-python-client google-auth-oauthlib \
+            spotipy kokoro-onnx
 ```
 
-### Google Calendar / Gmail
+> **Kokoro models** — download `kokoro-v1.0.onnx` and `voices-v1.0.bin` from the [Kokoro ONNX releases](https://github.com/thewh1teagle/kokoro-onnx/releases) and place them in the project root.
 
-Place `google_credentials.json` (OAuth 2.0 client credentials) in the project root. On first run, a browser window will open for authorization and cache the token locally.
+### 3. Set environment variables
 
-### Run
+Add to your `~/.zshrc` (or `.bashrc`):
 
 ```bash
-cd ~/Desktop/Projects/Jarvis
+export ANTHROPIC_API_KEY="sk-ant-..."
+export ELEVENLABS_API_KEY="..."
+export SPOTIFY_CLIENT_ID="..."
+export SPOTIFY_CLIENT_SECRET="..."
+export SPOTIFY_REDIRECT_URI="http://localhost:8888/callback"
+```
+
+### 4. Google API credentials
+
+- Create a project in [Google Cloud Console](https://console.cloud.google.com/)
+- Enable Calendar API and Gmail API
+- Download `credentials.json` and place it in the project root
+- On first run, Jarvis will open a browser for OAuth — token saved as `google_token.json`
+
+### 5. Run Jarvis
+
+```bash
+# Voice mode (microphone required)
 python3.11 main.py
+
+# Text mode (no mic needed)
+python3.11 main.py --text
+
+# Silent mode (HUD only — no voice output or mic)
+python3.11 main.py --silent
 ```
 
-HUD available at `http://localhost:8765`
+Open the HUD at [http://localhost:8765](http://localhost:8765)
 
 ---
 
-## Roadmap
+## 🔑 Environment Variables
 
-| Phase | Status | Description |
+| Variable | Required | Description |
 |---|---|---|
-| 1 — Voice Pipeline | ✅ Complete | Wake word, VAD recording, Whisper, Kokoro TTS |
-| 2 — Vault Integration | ✅ Complete | Obsidian read/write, inbox, notes, folders |
-| 3 — Filesystem Access | ✅ Complete | Permission-scoped file ops, Claude Code integration |
-| 4 — Mac Studio Deployment | ✅ Complete | Always-on service, Claude API, model routing |
-| 5 — Multi-Agent Architecture | ✅ Complete | Parallel agents, MasterOrchestrator, agent bus |
-| 6 — Browser HUD | ✅ Complete | FastAPI server, WebSocket, agent panel, silent mode |
-| 7 — Persistent Memory | ✅ Complete | Cross-session memory, auto-save, personality traits |
-| 8 — Tool Integrations | ✅ Complete | Calendar, Gmail, Spotify, search, crypto, weather |
-| 9 — ElevenLabs TTS | ✅ Complete | Custom voice, sentence streaming, Kokoro fallback |
-| 10 — Proactive Briefing | ✅ Complete | Startup checks, stale project nudges, job staleness |
-| iOS Companion App | 🔜 Planned | Remote voice input + HUD on iPhone |
-| Kokoro Quality Pass | 🔜 Planned | Improve fallback prosody and latency |
-| Agent Memory Write-back | 🔜 Planned | Agents write session summaries to vault automatically |
+| `ANTHROPIC_API_KEY` | ✅ | Claude API key |
+| `ELEVENLABS_API_KEY` | ✅ | ElevenLabs TTS key (Kokoro fallback used if missing) |
+| `SPOTIFY_CLIENT_ID` | ⚡ Optional | Spotify playback control |
+| `SPOTIFY_CLIENT_SECRET` | ⚡ Optional | Spotify playback control |
+| `SPOTIFY_REDIRECT_URI` | ⚡ Optional | Spotify OAuth redirect |
+
+Google credentials are file-based (`google_credentials.json` + `google_token.json`).
 
 ---
 
-## About
+## 💬 Usage Examples
 
-Built by [Edward Haddad](https://github.com/e-haddad) — ECE graduate, Oakland University. Jarvis is both a daily productivity tool and a portfolio project demonstrating end-to-end AI systems engineering: local inference, cloud LLMs, real-time audio pipelines, multi-agent orchestration, and full-stack tooling.
+```
+"Hey Jarvis"                          → Activates, speaks startup brief
 
-> *"The suit and I are one."*
+"What's on my calendar today?"        → Reads today's Google Calendar events
+"Add a meeting Friday at 2pm"         → Creates a calendar event by voice
+
+"Search for the latest on WWDC 2025"  → Live web search, spoken summary
+"What's the Bitcoin price?"           → Live crypto price
+
+"Play ma7kameh on Spotify"            → Starts playlist via Spotify API
+
+"Read my Jarvis note"                 → Reads Obsidian vault note aloud
+"Add to my inbox: fix the HUD agent pulse animation"  → Saves to Obsidian inbox
+
+"Write a Python script that..."       → Coder agent + Claude Code for heavy tasks
+"Help me tailor my resume for Wind River"  → Career agent with job context
+
+"Turn on the living room lights"      → Routes to Iris agent → Tuya smart plugs
+```
+
+---
+
+## 🔗 Related Projects
+
+**Jarvis** is the central hub that integrates with two companion projects:
+
+### 🖐️ Iris — Gesture Smart Home
+Computer vision smart home controller running on Raspberry Pi 5. Uses MediaPipe hand tracking and a camera to detect gestures (fist, pinch, two-hand swipe) and map them to Tuya smart plug commands via a Flask dashboard. Jarvis routes all smart home queries to a dedicated Iris specialist agent with full project context.
+
+### 🃏 ChipIn — Poker Chip Wallet
+Mobile app for tracking poker chip balances across games with friends. Firebase backend, Stage 1 complete. Jarvis has a Projects agent with ChipIn context for development decisions.
+
+### 🧾 Billed — Bill Splitting
+Smart bill splitting app for groups. Concept fully defined. Tracked in the Projects agent context.
+
+---
+
+## 🗺️ Roadmap
+
+- [ ] Jarvis demo video (wake word → query → HUD → voice response)
+- [ ] Local LLM mode via Ollama (full offline fallback, no API dependency)
+- [ ] Vision — screenshot analysis, screen reading, image queries
+- [ ] Proactive alerts — "you have a meeting in 10 minutes" without being asked
+- [ ] Tailscale remote wake — trigger Jarvis from phone, anywhere
+- [ ] iOS/Android companion app
+- [ ] Iris full integration — two-way state sync (Jarvis asks Iris for device status)
+- [ ] ChipIn backend — Firebase rules, session persistence, live balance sync
+- [ ] Billed MVP — group management and split calculation engine
+
+---
+
+## 📄 License
+
+MIT License — see [LICENSE](LICENSE) for details.
+
+---
+
+<div align="center">
+
+Built by [Edward Haddad](https://github.com/e-haddad) · ECE Graduate · Oakland University
+
+*"Sometimes you gotta run before you can walk."*
+
+</div>
