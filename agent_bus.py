@@ -233,21 +233,58 @@ _SYNTH_SYSTEM = (
 
 def _synthesize(user_input: str, results: dict[str, str]) -> str:
     """
-    Fold multiple agent outputs into one clean spoken Jarvis response via Haiku.
-    Falls back to labeled concatenation if the call fails.
+    Fold multiple agent outputs into one clean spoken Jarvis response.
+    Tries Ollama first, falls back to Claude Haiku, then raw labeled output.
     """
+    import urllib.request as _req
+    import json as _json
+
     labeled = "\n\n".join(
         f"[{name}] {out.strip()}" for name, out in results.items() if out and out.strip()
     )
+    prompt = (
+        f'Edward asked: "{user_input}"\n\n'
+        f"Agent outputs:\n{labeled}\n\n"
+        "Synthesize into one concise natural spoken response. "
+        "No headers, no labels, no bullets. 2-4 sentences max."
+    )
+    system = (
+        "You are Jarvis, Edward Haddad's personal AI. "
+        "British wit, direct, confident. Speakable prose only. No markdown."
+    )
+
+    # Try Ollama first for cost savings
+    try:
+        payload = _json.dumps({
+            "model": "llama3.1:8b",
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt}
+            ],
+            "stream": False,
+            "options": {"num_predict": 300}
+        }).encode("utf-8")
+        req = _req.Request(
+            "http://localhost:11434/api/chat",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with _req.urlopen(req, timeout=8) as r:
+            result = _json.loads(r.read().decode("utf-8"))
+        response = result["message"]["content"].strip()
+        if response:
+            return response
+    except Exception:
+        pass
+
+    # Fallback to Claude Haiku
     try:
         resp = client.messages.create(
             model=HAIKU,
             max_tokens=1000,
-            system=_SYNTH_SYSTEM,
-            messages=[{
-                "role": "user",
-                "content": f'Edward asked: "{user_input}"\n\nAgent outputs:\n\n{labeled}',
-            }],
+            system=system,
+            messages=[{"role": "user", "content": prompt}],
         )
         for block in resp.content:
             if block.type == "text" and block.text.strip():

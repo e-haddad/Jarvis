@@ -13,7 +13,7 @@ import anthropic
 
 from vault import add_to_inbox, read_note, append_to_note, list_notes
 from filesystem import list_folder, read_file, summarize_folder, create_file_in, open_obsidian_note, run_terminal_command
-from search import web_search, get_weather, get_news, get_crypto_price, set_reminder, open_app, draft_email, run_claude_code, detect_heavy_coding_task, detect_heavy_generation_task, play_on_spotify, fetch_url_summary
+from search import web_search, get_weather, get_news, get_crypto_price, set_reminder, open_app, draft_email, run_claude_code, detect_heavy_coding_task, detect_heavy_generation_task, play_on_spotify, fetch_url_summary, generate_cover_letter, browse_web
 from memory import (
     save_fact, read_memory, read_category, correct_memory,
     should_auto_remember, set_persona_trait, build_persona_instructions
@@ -94,11 +94,17 @@ def _is_document_task(text: str) -> tuple[bool, str]:
     """
     Returns (True, doc_type) if the request is a long-form document generation task
     that should bypass the agent loop.
+
+    NOTE: Cover letters use the tool system (generate_cover_letter tool), NOT this fast-path.
     """
     lowered = text.lower()
+
+    # Cover letters should use the generate_cover_letter tool, not document fast-path
+    if "cover letter" in lowered:
+        return False, ""
+
     doc_signals = {
         "readme": "readme",
-        "cover letter": "cover_letter",
         "write a report": "report",
         "generate a report": "report",
         "write a summary": "summary",
@@ -114,6 +120,90 @@ def _is_document_task(text: str) -> tuple[bool, str]:
         if signal in lowered:
             return True, doc_type
     return False, ""
+
+
+# ── Local LLM via Ollama ───────────────────────────────────────────────────────
+
+def _call_ollama(text: str, system: str = "", max_tokens: int = 400) -> str | None:
+    """
+    Call local Ollama llama3.1:8b for routine turns.
+    Returns response text or None if Ollama is unavailable.
+    Fast-path for simple queries — saves API cost.
+    """
+    import urllib.request
+    import json
+
+    payload = json.dumps({
+        "model": "llama3.1:8b",
+        "messages": [
+            {"role": "system", "content": system or (
+                "You are Jarvis, Edward Haddad's personal AI assistant. "
+                "British wit, direct, no fluff. Short responses — 1-2 sentences max. "
+                "No bullet points, no markdown. Speakable prose only."
+            )},
+            {"role": "user", "content": text}
+        ],
+        "stream": False,
+        "options": {"num_predict": max_tokens}
+    }).encode("utf-8")
+
+    try:
+        req = urllib.request.Request(
+            "http://localhost:11434/api/chat",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=8) as r:
+            result = json.loads(r.read().decode("utf-8"))
+        return result["message"]["content"].strip()
+    except Exception:
+        return None
+
+
+def _is_routine_turn(text: str) -> bool:
+    """
+    Returns True if this is a simple routine turn that local LLM can handle.
+    These don't need tool calls or complex reasoning.
+    """
+    lowered = text.lower()
+    words = lowered.split()
+
+    # Too short or too long for routine classification
+    if len(words) < 2 or len(words) > 15:
+        return False
+
+    ROUTINE_SIGNALS = {
+        # Greetings and small talk
+        "how are you", "what's up", "good morning", "good evening",
+        "good night", "hey jarvis", "hello", "hi jarvis",
+        # Simple factual
+        "what time is it", "what day is it", "what's today",
+        "tell me a joke", "say something", "what do you think",
+        # Simple status
+        "are you there", "you there", "you awake",
+    }
+
+    # Check for tool-requiring keywords — these must go to Claude
+    TOOL_SIGNALS = {
+        "weather", "calendar", "remind", "timer", "search", "play",
+        "spotify", "email", "draft", "open", "bitcoin", "crypto",
+        "news", "what's happening", "schedule", "event", "meeting",
+        "jarvis status", "project", "iris", "chipin", "billed",
+        "github", "code", "file", "read", "write", "run",
+    }
+
+    if any(sig in lowered for sig in TOOL_SIGNALS):
+        return False
+
+    if any(sig in lowered for sig in ROUTINE_SIGNALS):
+        return True
+
+    # Short conversational turns with no tool signals
+    if len(words) <= 6 and "?" not in text and not any(sig in lowered for sig in TOOL_SIGNALS):
+        return True
+
+    return False
 
 
 # ── Vault Self-Awareness ───────────────────────────────────────────────────────
@@ -231,6 +321,8 @@ _TOOL_ERROR_MESSAGES = {
     "set_personality":     "Couldn't update personality settings.",
     "play_on_spotify":     "Spotify playback failed — make sure Spotify is open on a device.",
     "fetch_url_summary":   "Couldn't fetch or summarize that URL.",
+    "generate_cover_letter": "Couldn't generate that cover letter.",
+    "browse_web":          "Browser task failed — check if Playwright is installed.",
 }
 
 def _format_tool_error(tool_name: str, exception: Exception) -> str:
@@ -419,6 +511,52 @@ TOOLS = [
                 }
             },
             "required": ["url"]
+        }
+    },
+    {
+        "name": "generate_cover_letter",
+        "description": (
+            "Generate a tailored cover letter as a .docx file ready to attach to a job application. "
+            "Use when Edward says 'write a cover letter for X', 'generate a cover letter for [company/URL]', "
+            "'make a cover letter for [job posting]'. "
+            "Pass job_url if Edward provides a URL. Pass company_name if he names a company. "
+            "Pass job_title if he specifies a role. All parameters are optional — defaults to general embedded role."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "job_url":      {"type": "string", "description": "URL of the job posting"},
+                "company_name": {"type": "string", "description": "Company name e.g. 'Wind River'"},
+                "job_title":    {"type": "string", "description": "Job title e.g. 'Embedded Software Engineer'"}
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "browse_web",
+        "description": (
+            "Autonomously browse a website and complete a task — handles login-walled pages "
+            "that fetch_url_summary cannot access, including LinkedIn, company job portals, "
+            "and any page requiring interaction. "
+            "Use when Edward says 'check LinkedIn for jobs', 'browse to X and find Y', "
+            "'look up the job posting at X', 'find the hiring manager at X', "
+            "or when fetch_url_summary fails due to auth/login walls. "
+            "Slower than fetch_url_summary — only use when the page requires a real browser. "
+            "Costs more API tokens per call — use sparingly for high-value tasks."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": "What to do on the page e.g. 'find all embedded software engineer job postings and return their titles, companies, and URLs'"
+                },
+                "url": {
+                    "type": "string",
+                    "description": "Starting URL. Leave empty to let the agent navigate itself."
+                }
+            },
+            "required": ["task"]
         }
     },
     {
@@ -816,6 +954,7 @@ def _set_reminder_and_emit(message: str, minutes: int) -> str:
 TOOL_MAP = {
     "web_search":          lambda a: web_search(a["query"]),
     "fetch_url_summary":   lambda a: fetch_url_summary(a["url"], a.get("mode", "general")),
+    "browse_web":          lambda a: browse_web(a["task"], a.get("url", "")),
     "get_weather":         lambda a: get_weather(a.get("location", "Detroit, Michigan")),
     "get_news":            lambda a: get_news(a.get("topic", "technology"), a.get("count", 5)),
     "get_crypto_price":    lambda a: get_crypto_price(a.get("coin", "bitcoin")),
@@ -850,6 +989,9 @@ TOOL_MAP = {
     "create_file":         lambda a: create_file_in(a["folder_query"], a["filename"], a.get("content", "")),
     "update_jarvis_note":  lambda a: _append_to_jarvis_note(a["content"]),
     "draft_email":         lambda a: draft_email(a["to"], a["subject"], a["body"]),
+    "generate_cover_letter": lambda a: generate_cover_letter(
+                                a.get("job_url", ""), a.get("company_name", ""), a.get("job_title", "")
+                            ),
     "run_claude_code":        lambda a: run_claude_code(a["prompt"]),
     "run_terminal_command":   lambda a: run_terminal_command(a["command"], a.get("cwd")),
 }
@@ -1192,6 +1334,17 @@ def think(text: str, on_sentence=None) -> str:
         _history.append({"role": "assistant", "content": response_text})
         _trim_history()
         return response_text
+
+    # ── Local LLM fast-path — routine turns bypass Claude API ─────────────
+    if _is_routine_turn(text):
+        local_response = _call_ollama(text)
+        if local_response:
+            _history.append({"role": "user",      "content": text})
+            _history.append({"role": "assistant",  "content": local_response})
+            _trim_history()
+            _auto_memory_check(text, local_response)
+            return local_response
+        # If Ollama fails, fall through to Claude normally
 
     # ── Multi-agent routing ────────────────────────────────────────────────
     intent = classify_intent(text, _history)

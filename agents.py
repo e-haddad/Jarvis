@@ -309,6 +309,37 @@ CAREER_TOOLS = [
             "required": ["company_name", "status"]
         }
     },
+    {
+        "name": "generate_cover_letter",
+        "description": (
+            "Generate a tailored cover letter as a .docx file ready to attach to a job application. "
+            "Use when Edward says 'write a cover letter for X', 'generate a cover letter for [company/URL]', "
+            "'make a cover letter for [job posting]'. Pass job_url if Edward provides a URL. "
+            "Pass company_name if he names a company. Pass job_title if he specifies a role. "
+            "All parameters are optional — defaults to general embedded role."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "job_url":      {"type": "string", "description": "URL of the job posting"},
+                "company_name": {"type": "string", "description": "Company name e.g. 'Wind River'"},
+                "job_title":    {"type": "string", "description": "Job title e.g. 'Embedded Software Engineer'"}
+            },
+            "required": []
+        }
+    },
+    {
+        "name": "browse_web",
+        "description": "Browse websites autonomously including LinkedIn and auth-walled job portals. Use for job research, finding hiring managers, reading full job descriptions.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task": {"type": "string"},
+                "url":  {"type": "string"}
+            },
+            "required": ["task"]
+        }
+    },
 ]
 
 PROJECTS_TOOLS = [
@@ -602,6 +633,16 @@ def _execute_agent_tool(name: str, args: dict) -> str:
                 return f"Company '{args['company_name']}' not found in target list"
             except Exception as e:
                 return f"Failed to update company status: {e}"
+        elif name == "generate_cover_letter":
+            from search import generate_cover_letter
+            return generate_cover_letter(
+                args.get("job_url", ""),
+                args.get("company_name", ""),
+                args.get("job_title", "")
+            )
+        elif name == "browse_web":
+            from search import browse_web
+            return browse_web(args["task"], args.get("url", ""))
         else:
             return f"Tool {name} not available in this agent."
     except Exception as e:

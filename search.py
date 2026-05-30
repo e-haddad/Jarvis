@@ -601,6 +601,231 @@ def fetch_url_summary(url: str, mode: str = "general") -> str:
         return f"Summary failed: {e}"
 
 
+# ── Cover Letter Generation ────────────────────────────────────────────────────
+
+def generate_cover_letter(job_url: str = "", company_name: str = "", job_title: str = "") -> str:
+    """
+    Generate a tailored cover letter as a .docx file.
+
+    Flow:
+    1. Fetch job posting if URL provided (mode=job)
+    2. Read resume and second brain from vault
+    3. Generate letter via Sonnet with human-writing instructions
+    4. Save as .docx to ~/Desktop/OBS/Edward/Career/Cover Letters/[Company].docx
+    5. Return confirmation with file path
+    """
+    import urllib.request
+    import json
+    import subprocess
+    import os
+    from pathlib import Path
+    from datetime import date
+
+    vault = Path.home() / "Desktop" / "OBS" / "Edward"
+    jarvis_dir = Path(__file__).parent
+
+    # ── Read context ────────────────────────────────────────────────────────
+    def _read(p: Path) -> str:
+        try:
+            return p.read_text(encoding="utf-8").strip() if p.exists() else ""
+        except Exception:
+            return ""
+
+    resume    = _read(vault / "Career" / "Resume & Portfolio.md")
+    brain     = _read(vault / "Second_Brain.md")
+    job_info  = ""
+
+    # ── Fetch job posting if URL provided ───────────────────────────────────
+    if job_url:
+        job_info = fetch_url_summary(job_url, mode="job")
+        # Extract company name from job info if not provided
+        if not company_name and job_info:
+            lines = job_info.split('\n')
+            for line in lines:
+                if 'company' in line.lower() or ':' in line:
+                    parts = line.split(':', 1)
+                    if len(parts) > 1:
+                        potential = parts[1].strip()
+                        if potential and len(potential) < 50:
+                            company_name = potential
+                            break
+
+    if not company_name:
+        company_name = "the Company"
+    if not job_title:
+        job_title = "Embedded Software Engineer"
+
+    # ── Generate letter via Sonnet ──────────────────────────────────────────
+    today = date.today().strftime("%B %d, %Y")
+
+    system_prompt = (
+        "You are writing a cover letter on behalf of Edward Haddad. "
+        "Your goal is to write something that sounds like a real person wrote it — "
+        "not an AI, not a template, not a corporate form letter. "
+        "\n\nSTRICT RULES:"
+        "\n- NEVER use these phrases: 'I am excited to apply', 'I am passionate about', "
+        "'leverage my skills', 'I believe I would be a great fit', 'Please find attached', "
+        "'Thank you for your consideration', 'I look forward to hearing from you', "
+        "'dynamic', 'synergy', 'results-driven', 'team player', 'hard worker'. "
+        "\n- NEVER use em-dashes (—) or en-dashes (–). Use periods or commas instead. "
+        "\n- NEVER use semicolons unless absolutely necessary. "
+        "\n- NEVER start consecutive sentences with 'I'. Vary sentence openers. "
+        "\n- Vary sentence length naturally. Some short. Some longer and more detailed. "
+        "\n- Write like a sharp engineer explaining their work to a colleague, not a recruiter writing a pitch. "
+        "\n- No filler transitions like 'Furthermore', 'Moreover', 'Additionally', 'In conclusion'. "
+        "\n- Reference specific real details from Edward's background and the job posting. "
+        "\n- Maximum 4 paragraphs. Every sentence earns its place. "
+        "\n- End with one direct confident closing line. "
+        "\n\nFORMAT — output the letter body only in this exact structure, "
+        "with blank lines between sections:"
+        "\n[Today's date]"
+        "\n"
+        "\n[Hiring Manager Name or 'Hiring Manager']"
+        "\n[Company Name]"
+        "\n[City, State if known]"
+        "\n"
+        "\nDear Hiring Manager,"
+        "\n"
+        "\n[Opening paragraph — what role, why this company specifically, one specific detail that shows you did your research]"
+        "\n"
+        "\n[Second paragraph — your strongest relevant project or experience, specific and concrete]"
+        "\n"
+        "\n[Third paragraph — second strongest point, connect to what the role needs]"
+        "\n"
+        "\n[Closing paragraph — one sentence on OPT/STEM extension eligibility if relevant, then direct confident close]"
+        "\n"
+        "\nSincerely,"
+        "\n"
+        "\nEdward Haddad"
+        "\nedwardhaddad03@gmail.com"
+        "\n(248) 000-0000"
+        "\nhttps://github.com/e-haddad"
+    )
+
+    user_msg = (
+        f"Write a cover letter for Edward Haddad applying to: {job_title} at {company_name}\n\n"
+        f"Today's date: {today}\n\n"
+        f"JOB POSTING DETAILS:\n{job_info if job_info else 'No URL provided — write for a general embedded software engineer role at ' + company_name}\n\n"
+        f"EDWARD'S RESUME:\n{resume}\n\n"
+        f"EDWARD'S CONTEXT (second brain):\n{brain}"
+    )
+
+    try:
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        payload = json.dumps({
+            "model": "claude-sonnet-4-6",
+            "max_tokens": 2000,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": user_msg}]
+        }).encode("utf-8")
+
+        req = urllib.request.Request(
+            "https://api.anthropic.com/v1/messages",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=60) as r:
+            result = json.loads(r.read().decode("utf-8"))
+        letter_content = result["content"][0]["text"].strip()
+    except Exception as e:
+        return f"Cover letter generation failed: {e}"
+
+    # ── Save as .docx ────────────────────────────────────────────────────────
+    safe_company = "".join(c for c in company_name if c.isalnum() or c in (' ', '-', '_')).strip()
+    safe_company = safe_company.replace(' ', '_')
+    output_dir  = vault / "Career" / "Cover Letters"
+    output_path = output_dir / f"{safe_company}_Cover_Letter.docx"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    script_path = jarvis_dir / "generate_cover_letter.js"
+
+    try:
+        proc = subprocess.run(
+            ["node", str(script_path)],
+            input=json.dumps({
+                "content": letter_content,
+                "output_path": str(output_path)
+            }),
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=str(jarvis_dir),
+        )
+        if proc.returncode != 0:
+            return f"Letter generated but .docx creation failed: {proc.stderr}\n\nLetter content:\n{letter_content}"
+
+        return f"Cover letter saved to {output_path}"
+
+    except Exception as e:
+        return f"Letter generated but .docx creation failed: {e}\n\nLetter content:\n{letter_content}"
+
+
+def browse_web(task: str, url: str = "", headless: bool = True) -> str:
+    """
+    Use Browser Use + Playwright to autonomously browse the web and complete a task.
+    Handles authenticated pages (LinkedIn, company portals) that fetch_url_summary cannot access.
+
+    Examples:
+    - browse_web("Find embedded software engineer job postings", "https://www.linkedin.com/jobs")
+    - browse_web("Get the job description for this posting", "https://www.linkedin.com/jobs/view/123")
+    - browse_web("Find the hiring manager's name", "https://www.windriver.com/careers")
+
+    Returns extracted text/data from the page.
+    """
+    import asyncio
+    import os
+
+    async def _run():
+        try:
+            from browser_use import Agent
+            from browser_use.browser import BrowserConfig
+            from langchain_community.chat_models import ChatAnthropic
+        except ImportError as e:
+            return f"Browser Use not available: {e}. Run: pip3.11 install browser-use langchain-community --break-system-packages"
+
+        try:
+            llm = ChatAnthropic(
+                model="claude-haiku-4-5-20251001",
+                anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY"),
+                max_tokens_to_sample=2000,
+            )
+
+            full_task = task
+            if url:
+                full_task = f"Go to {url} and {task}"
+
+            agent = Agent(
+                task=full_task,
+                llm=llm,
+                browser_config=BrowserConfig(headless=headless),
+            )
+
+            result = await agent.run(max_steps=15)
+
+            # Extract the final result
+            if hasattr(result, 'final_result'):
+                return result.final_result() or "Task completed but no text was extracted."
+            return str(result)
+
+        except Exception as e:
+            return f"Browser task failed: {e}"
+
+    try:
+        # Run async in a new event loop (we're in a sync context)
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(_run())
+        loop.close()
+        return result
+    except Exception as e:
+        return f"Browser Use failed: {e}"
+
+
 # ── Claude Code Integration ────────────────────────────────────────────────────
 # Add these two functions to the bottom of search.py
 
