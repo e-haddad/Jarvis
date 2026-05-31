@@ -21,7 +21,7 @@ import anthropic
 # Agent runner + tool subsets live in agents.py.
 # System prompts live in orchestrator.py (static strings, no circular import).
 from agents import (
-    _run_agent, CAREER_TOOLS, PROJECTS_TOOLS, IRIS_TOOLS,
+    _run_agent, CAREER_TOOLS, PROJECTS_TOOLS, IRIS_TOOLS, FINANCE_TOOLS,
     _write_back_career, _write_back_projects, _write_back_iris,
     _write_back_second_brain,
 )
@@ -123,7 +123,7 @@ TOOL_SETS = {
     "career":     CAREER_TOOLS,
     "projects":   PROJECTS_TOOLS,
     "iris":       IRIS_TOOLS,
-    "finance":    RESEARCH_TOOLS,
+    "finance":    FINANCE_TOOLS,
     "general":    GENERAL_TOOLS,
 }
 
@@ -214,7 +214,7 @@ _DISPATCH_SYSTEM = (
     "career (job applications, cover letters, resume tailoring), "
     "projects (Jarvis/ChipIn/Billed/Iris status and planning), "
     "iris (smart home, Pi, gesture), "
-    "finance (crypto, spending, portfolio), "
+    "finance (stock prices, watchlist, market data, crypto, spending, portfolio — use for ANY query about stock prices, Apple, NVIDIA, Tesla, crypto prices, market data), "
     "general (everything else). "
     'Return a JSON array of {"agent": name, "task": description} objects. '
     "Only spawn agents that are genuinely needed. For simple queries spawn only "

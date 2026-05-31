@@ -192,6 +192,23 @@ def main():
     except Exception as e:
         print(f"[Pulls] Failed to start: {e}")
 
+    # Start stock price monitoring
+    try:
+        from finance_monitor import get_monitor
+        from speak import speak
+
+        def handle_finance_alert(symbol: str, price: float, change_pct: float, direction: str):
+            """Voice alert handler for stock price movements."""
+            message = f"Alert: {symbol} {direction} {abs(change_pct):.1f}% to ${price:,.2f}"
+            speak(message)
+            emit_jarvis_msg(message)
+
+        monitor = get_monitor()
+        monitor.emit_alert = handle_finance_alert
+        monitor.start()
+    except Exception as e:
+        print(f"[StockMonitor] Failed to start: {e}")
+
     # --silent flag or no mic → server-only mode (browser HUD + typing, no voice)
     if "--silent" in sys.argv or not _mic_available():
         if "--silent" not in sys.argv:

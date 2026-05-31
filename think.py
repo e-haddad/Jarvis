@@ -24,7 +24,7 @@ from jarvis_calendar import (
 )
 from context import get_context_for
 from orchestrator import classify_intent
-from agents import run_career_agent, run_projects_agent, run_iris_agent
+from agents import run_career_agent, run_projects_agent, run_iris_agent, run_finance_agent
 from agent_bus import MasterOrchestrator
 
 # ── Client ─────────────────────────────────────────────────────────────────────
@@ -191,6 +191,8 @@ def _is_routine_turn(text: str) -> bool:
         "news", "what's happening", "schedule", "event", "meeting",
         "jarvis status", "project", "iris", "chipin", "billed",
         "github", "code", "file", "read", "write", "run",
+        "watchlist", "stock", "stocks", "portfolio", "market", "price",
+        "finance", "aapl", "nvda", "tsla", "msft", "apple stock", "my stocks", "btc",
     }
 
     if any(sig in lowered for sig in TOOL_SIGNALS):
@@ -1390,6 +1392,8 @@ def think(text: str, on_sentence=None) -> str:
             response_text = run_projects_agent(agent_messages)
         elif intent == "iris":
             response_text = run_iris_agent(agent_messages)
+        elif intent == "finance":
+            response_text = run_finance_agent(agent_messages)
         else:
             response_text = None
 

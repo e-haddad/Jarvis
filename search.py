@@ -167,6 +167,64 @@ def get_crypto_price(coin: str = "bitcoin") -> str:
         return f"Crypto price fetch failed: {e}"
 
 
+def get_stock_price(symbol: str) -> dict:
+    """
+    Get current stock price and change using Yahoo Finance (no API key needed).
+    Returns dict with: symbol, price, change_pct, volume, timestamp.
+    """
+    symbol = symbol.upper().strip()
+
+    try:
+        # Yahoo Finance query API endpoint
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1d&range=1d"
+        req = urllib.request.Request(url, headers={
+            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0"
+        })
+
+        with urllib.request.urlopen(req, timeout=8) as r:
+            data = json.loads(r.read().decode("utf-8"))
+
+        if "chart" not in data or "result" not in data["chart"]:
+            return {"error": f"Stock symbol '{symbol}' not found."}
+
+        result = data["chart"]["result"][0]
+        meta = result["meta"]
+
+        current_price = meta["regularMarketPrice"]
+        prev_close = meta["chartPreviousClose"]
+        change_pct = ((current_price - prev_close) / prev_close) * 100
+        volume = meta.get("regularMarketVolume", 0)
+
+        return {
+            "symbol": symbol,
+            "price": current_price,
+            "change_pct": change_pct,
+            "volume": volume,
+            "timestamp": meta["regularMarketTime"],
+        }
+
+    except Exception as e:
+        return {"error": f"Stock price fetch failed for {symbol}: {e}"}
+
+
+def get_stock_price_formatted(symbol: str) -> str:
+    """
+    Get stock price as formatted string (for voice responses).
+    Mirrors the pattern from get_crypto_price().
+    """
+    data = get_stock_price(symbol)
+
+    if "error" in data:
+        return data["error"]
+
+    price = data["price"]
+    change = data["change_pct"]
+    direction = "↑" if change >= 0 else "↓"
+
+    return f"{data['symbol']}: ${price:,.2f} ({direction}{abs(change):.2f}% today)"
+
+
 def set_reminder(message: str, minutes: int) -> str:
     """
     Set a spoken reminder after N minutes using a background thread.

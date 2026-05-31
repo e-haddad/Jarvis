@@ -53,6 +53,17 @@ IRIS_SIGNALS = {
     "pinch", "both hands", "pi 5", "pi5", "ssh", "iris.local",
 }
 
+FINANCE_SIGNALS = {
+    "stock", "stocks", "market", "portfolio", "watchlist",
+    "aapl", "apple stock", "nvda", "nvidia", "tsla", "tesla",
+    "msft", "microsoft", "spy", "nasdaq", "dow", "s&p",
+    "shares", "equity", "ticker", "wall street", "trading",
+    "buy stock", "sell stock", "stock price", "how's the market",
+    "bitcoin", "btc", "ethereum", "eth", "crypto", "cryptocurrency",
+    "my watchlist", "give me my watchlist", "show my watchlist", "check my watchlist",
+    "watchlist summary", "my stocks", "my portfolio", "check my stocks",
+}
+
 GENERAL_SIGNALS = {
     "weather", "calendar", "schedule", "time", "what time",
     "remind", "remember", "inbox", "note", "search",
@@ -79,6 +90,10 @@ def _keyword_classify(text: str) -> str | None:
     # Iris is most specific — check first
     if any(sig in lowered for sig in IRIS_SIGNALS):
         return "iris"
+
+    # Finance — check before general since some keywords overlap
+    if any(sig in lowered for sig in FINANCE_SIGNALS):
+        return "finance"
 
     # Career
     if any(sig in lowered for sig in CAREER_SIGNALS):
@@ -253,10 +268,12 @@ AGENT_SYSTEM_PROMPTS = {
     "finance": (
         _BASE_PERSONA +
         "\n\nYou are acting as Edward's Finance specialist. "
-        "You track crypto prices, spending, and portfolio. "
+        "Primary responsibilities: stock prices (AAPL, NVDA, TSLA, MSFT, etc.), "
+        "watchlist monitoring, market data, crypto prices (BTC, ETH, SOL), portfolio tracking, spending analysis. "
         "Given a focused task, pull the current numbers, put them in context, and be "
         "blunt about what they mean. No hype, no hedging — just the state of things "
-        "and the one move worth considering."
+        "and the one move worth considering. Use get_stock_price for any ticker symbol query. "
+        "Use get_watchlist_summary when Edward asks about his positions or 'how's the market'."
     ),
     "general": (
         _BASE_PERSONA +
@@ -326,8 +343,14 @@ def get_agent_system_prompt(agent_name: str) -> str:
             base = base + f"\n\nEDWARD'S GOALS:\n{goals}"
 
     elif agent_name == "finance":
-        # Finance agent gets crypto and spending context if available
-        pass
+        # Finance agent gets watchlist context
+        try:
+            from agents import _finance_context
+            watchlist = _finance_context()
+            if watchlist:
+                base = base + f"\n\n{watchlist}"
+        except Exception:
+            pass
 
     return base
 

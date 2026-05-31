@@ -101,6 +101,40 @@ def _target_companies_context() -> str:
         return ""
 
 
+def _finance_context() -> str:
+    try:
+        import yaml
+        from search import get_stock_price
+        path = VAULT_ROOT / "Finance" / "watchlist.yml"
+        if not path.exists():
+            return ""
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+        stocks = data.get("stocks", [])
+        settings = data.get("alert_settings", {})
+
+        lines = ["STOCK WATCHLIST:"]
+        for stock in stocks:
+            symbol = stock.get("symbol", "")
+            threshold = stock.get("alert_threshold", 0)
+            price_data = get_stock_price(symbol)
+            if "error" not in price_data:
+                price = price_data["price"]
+                change = price_data["change_pct"]
+                direction = "↑" if change >= 0 else "↓"
+                lines.append(
+                    f"- {symbol}: ${price:,.2f} ({direction}{abs(change):.2f}%) | Alert at ±{threshold}%"
+                )
+            else:
+                lines.append(f"- {symbol}: Alert at ±{threshold}% (price unavailable)")
+
+        lines.append(f"\nAlert settings: Check every {settings.get('check_interval_minutes', 15)} min, "
+                     f"Voice alerts: {settings.get('voice_alerts', True)}")
+
+        return "\n".join(lines)
+    except Exception as e:
+        return ""
+
+
 # ── Shared Memory ──────────────────────────────────────────────────────────────
 
 def _shared_memory() -> str:
@@ -225,6 +259,22 @@ def _projects_prompt(context: str, memory: str) -> str:
         + _second_brain_context()
     )
 
+def _finance_prompt(context: str, memory: str) -> str:
+    return (
+        _base_persona() +
+        "\n\nYou are acting as Edward's Finance specialist. "
+        "Primary responsibilities: stock prices (AAPL, NVDA, TSLA, MSFT, etc.), "
+        "watchlist monitoring, market data, crypto prices (BTC, ETH, SOL), portfolio tracking, spending analysis. "
+        "Given a focused task, pull the current numbers, put them in context, and be "
+        "blunt about what they mean. No hype, no hedging — just the state of things "
+        "and the one move worth considering. Use get_stock_price for any ticker symbol query. "
+        "Use get_watchlist_summary when Edward asks about his positions or 'how's the market'."
+        f"\n\nFINANCE CONTEXT:\n{context}"
+        f"\n\nPERSISTENT MEMORY:\n{memory}"
+        + _second_brain_context()
+    )
+
+
 def _iris_prompt(context: str, memory: str) -> str:
     tuya_info = _read_vault_file(VAULT_ROOT / "Projects" / "Iris" / "Iris Tuya Info.md")
     tuya_section = f"\n\nIRIS TUYA DEVICE INFO (pre-loaded):\n{tuya_info}" if tuya_info else ""
@@ -339,6 +389,49 @@ CAREER_TOOLS = [
             },
             "required": ["task"]
         }
+    },
+]
+
+FINANCE_TOOLS = [
+    {
+        "name": "get_stock_price",
+        "description": "Get current price and stats for a stock symbol (e.g. AAPL, NVDA, TSLA).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"symbol": {"type": "string", "description": "Stock ticker symbol"}},
+            "required": ["symbol"]
+        }
+    },
+    {
+        "name": "get_watchlist_summary",
+        "description": "Get summary of all stocks in Edward's watchlist with current prices and changes.",
+        "input_schema": {"type": "object", "properties": {}, "required": []}
+    },
+    {
+        "name": "add_to_watchlist",
+        "description": "Add a stock symbol to the watchlist with alert threshold.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string", "description": "Stock ticker symbol"},
+                "threshold": {"type": "number", "description": "Alert threshold percentage (default 3.0)"}
+            },
+            "required": ["symbol"]
+        }
+    },
+    {
+        "name": "get_crypto_price",
+        "description": "Get current crypto price (bitcoin, ethereum, solana, etc).",
+        "input_schema": {
+            "type": "object",
+            "properties": {"coin": {"type": "string"}},
+            "required": ["coin"]
+        }
+    },
+    {
+        "name": "web_search",
+        "description": "Search for market news, company financials, analyst reports.",
+        "input_schema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}
     },
 ]
 
@@ -643,6 +736,36 @@ def _execute_agent_tool(name: str, args: dict) -> str:
         elif name == "browse_web":
             from search import browse_web
             return browse_web(args["task"], args.get("url", ""))
+        elif name == "get_stock_price":
+            from search import get_stock_price_formatted
+            return get_stock_price_formatted(args["symbol"])
+        elif name == "get_watchlist_summary":
+            from finance_monitor import get_monitor
+            return get_monitor().get_watchlist_summary()
+        elif name == "add_to_watchlist":
+            try:
+                import yaml
+                path = VAULT_ROOT / "Finance" / "watchlist.yml"
+                data = yaml.safe_load(path.read_text(encoding="utf-8"))
+                stocks = data.get("stocks", [])
+                symbol = args["symbol"].upper()
+                threshold = args.get("threshold", 3.0)
+
+                # Check if already in watchlist
+                for stock in stocks:
+                    if stock["symbol"] == symbol:
+                        return f"{symbol} is already in the watchlist"
+
+                # Add new stock
+                stocks.append({"symbol": symbol, "alert_threshold": threshold})
+                data["stocks"] = stocks
+                path.write_text(yaml.dump(data, default_flow_style=False, allow_unicode=True), encoding="utf-8")
+                return f"Added {symbol} to watchlist with {threshold}% alert threshold"
+            except Exception as e:
+                return f"Failed to add to watchlist: {e}"
+        elif name == "get_crypto_price":
+            from search import get_crypto_price
+            return get_crypto_price(args["coin"])
         else:
             return f"Tool {name} not available in this agent."
     except Exception as e:
@@ -1196,6 +1319,15 @@ def run_iris_agent(messages: list[dict]) -> str:
     result   = _run_agent(prompt, IRIS_TOOLS, messages, SONNET)
     _write_back_iris(messages)
     _write_back_second_brain(messages, "iris")
+    return result
+
+
+def run_finance_agent(messages: list[dict]) -> str:
+    context  = _finance_context()
+    memory   = _shared_memory()
+    prompt   = _finance_prompt(context, memory)
+    result   = _run_agent(prompt, FINANCE_TOOLS, messages, SONNET)
+    _write_back_second_brain(messages, "finance")
     return result
 
 
