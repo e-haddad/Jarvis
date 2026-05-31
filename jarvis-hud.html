@@ -667,7 +667,71 @@
 
     .tiny-warn { display: none; }
   }
+
+  /* ════ FX: extended boot diagnostics ════ */
+  .boot-diag { display: flex; flex-direction: column; gap: 5px; margin-top: 10px; }
+  .boot-diag-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 36px;
+    width: 282px; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.16em;
+    opacity: 0; transform: translateY(3px); animation: fade-up 0.45s var(--ease-out) forwards;
   }
+  .boot-diag-row .lbl { color: var(--ink-dim); }
+  .boot-diag-row .st { display: inline-flex; align-items: center; gap: 7px; color: var(--ok); }
+  .boot-diag-row .st::before {
+    content: ""; width: 5px; height: 5px; border-radius: 50%;
+    background: var(--ok); box-shadow: 0 0 6px var(--ok-glow);
+  }
+  .boot-diag-row.pending .st { color: var(--ink-fainter); }
+  .boot-diag-row.pending .st::before { background: var(--ink-fainter); box-shadow: none; animation: boot-glyph 1s var(--ease) infinite; }
+
+  /* ════ FX: panel bracket draw-in ════ */
+  [data-fx-brackets="1"] .panel::before          { transform-origin: top left;     animation: bracket-in 0.45s var(--ease-out) 0.26s both; }
+  [data-fx-brackets="1"] .panel::after           { transform-origin: top right;    animation: bracket-in 0.45s var(--ease-out) 0.33s both; }
+  [data-fx-brackets="1"] .panel > .corner-br-a   { transform-origin: bottom left;  animation: bracket-in 0.45s var(--ease-out) 0.40s both; }
+  [data-fx-brackets="1"] .panel > .corner-br-b   { transform-origin: bottom right; animation: bracket-in 0.45s var(--ease-out) 0.47s both; }
+  @keyframes bracket-in { 0% { transform: scale(0.05); opacity: 0; } 55% { opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+
+  /* ════ FX: conversation streaming shimmer ════ */
+  .conv-text.streaming { position: relative; overflow: hidden; }
+  .conv-text.streaming::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none; mix-blend-mode: screen;
+    background: linear-gradient(100deg, transparent 32%, rgb(var(--accent-rgb) / 0.22) 50%, transparent 68%);
+    background-size: 240% 100%; animation: conv-shimmer 1.5s linear infinite;
+  }
+  @keyframes conv-shimmer { from { background-position: 130% 0; } to { background-position: -130% 0; } }
+
+  /* ════ FX: left metrics rail ════ */
+  .metrics-rail {
+    position: fixed; right: 24px; bottom: 96px;
+    display: flex; flex-direction: column; gap: 16px; z-index: 22; pointer-events: none;
+    opacity: 0; animation: fade-up 0.9s var(--ease-out) 0.7s forwards;
+  }
+  .metric { width: 138px; }
+  .metric-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.18em;
+    color: var(--ink-fainter); margin-bottom: 3px;
+  }
+  .metric-val { color: var(--ink); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; opacity: 0.85; }
+  .metric-spark { display: block; width: 138px; height: 30px; overflow: visible; }
+  @media (max-width: 900px) { .metrics-rail { display: none; } }
+
+  /* ════ FX: CRT scanline + vignette overlay ════ */
+  .crt-overlay { position: fixed; inset: 0; z-index: 9990; pointer-events: none; }
+  .crt-overlay::before {
+    content: ""; position: absolute; inset: 0; mix-blend-mode: multiply; opacity: 0.38;
+    background: repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 2px, rgba(0,0,0,0.14) 3px, rgba(0,0,0,0) 4px);
+  }
+  .crt-overlay::after {
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(ellipse 94% 90% at 50% 50%, transparent 62%, rgba(0,0,0,0.26) 100%);
+  }
+  .crt-scan {
+    position: absolute; left: 0; right: 0; height: 140px; pointer-events: none;
+    background: linear-gradient(to bottom, transparent, rgb(var(--accent-rgb) / 0.05) 50%, transparent);
+    animation: crt-sweep 7s linear infinite;
+  }
+  @keyframes crt-sweep { 0% { top: -140px; } 100% { top: 100%; } }
 </style>
 <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
@@ -675,6 +739,7 @@
 </head>
 <body>
 <div id="root"></div>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback } = React;
 
@@ -744,19 +809,41 @@ function useJarvisWS(handlers) {
 }
 
 // ── Boot ───────────────────────────────────────────────────────────────────────
-function Boot({ onDone }) {
+const BOOT_STEPS = ["NEURAL CORE", "VOICE I/O", "MEMORY BANKS", "SENSOR ARRAY", "AGENT MESH", "SECURE UPLINK"];
+function Boot({ onDone, detailed = true }) {
   const [gone, setGone] = useState(false);
+  const [step, setStep] = useState(0);
   useEffect(() => {
     const t1 = setTimeout(() => setGone(true), 3400);
     const t2 = setTimeout(() => onDone(), 4300);
-    return () => { clearTimeout(t1); clearTimeout(t2); };
+    const stepTimers = detailed
+      ? BOOT_STEPS.map((_, i) => setTimeout(() => setStep(s => Math.max(s, i + 1)), 660 + i * 350))
+      : [];
+    return () => { clearTimeout(t1); clearTimeout(t2); stepTimers.forEach(clearTimeout); };
   }, []);
+  if (!detailed) {
+    return (
+      <div className={`boot ${gone ? "gone" : ""}`}>
+        <div className="boot-glyph"></div>
+        <div className="boot-line l1">JARVIS · PHASE 15</div>
+        <div className="boot-line l2">INITIALIZING SUBSYSTEMS</div>
+        <div className="boot-line l3">ALL SYSTEMS NOMINAL</div>
+      </div>
+    );
+  }
   return (
     <div className={`boot ${gone ? "gone" : ""}`}>
       <div className="boot-glyph"></div>
-      <div className="boot-line l1">JARVIS · PHASE 5</div>
-      <div className="boot-line l2">INITIALIZING SUBSYSTEMS</div>
-      <div className="boot-line l3">ALL SYSTEMS NOMINAL</div>
+      <div className="boot-line l1">JARVIS · PHASE 15</div>
+      <div className="boot-diag">
+        {BOOT_STEPS.map((s, i) => (
+          <div key={s} className={`boot-diag-row ${i < step ? "" : "pending"}`} style={{ animationDelay: `${0.5 + i * 0.12}s` }}>
+            <span className="lbl">{s}</span>
+            <span className="st">{i < step ? "ONLINE" : "····"}</span>
+          </div>
+        ))}
+      </div>
+      <div className="boot-line l3" style={{ marginTop: "12px", animationDelay: "2.85s" }}>ALL SYSTEMS NOMINAL</div>
     </div>
   );
 }
@@ -956,7 +1043,7 @@ const SystemPanel = ({ pos, size, onDrag, onResize, onFocus, z, uptime, time, mo
     <div className="sys-row"><span className="k">MODEL</span><span className="v accent clickable" onClick={onToggleModel}>{model === "sonnet" ? "SONNET 4.6" : "HAIKU 4.5"}</span></div>
     <div className="sys-row"><span className="k">MIC</span><span className="v ok">ACTIVE</span></div>
     <div className="sys-row"><span className="k">SEARCH</span><span className="v">BRAVE</span></div>
-    <div className="sys-row"><span className="k">PHASE</span><span className="v">5</span></div>
+    <div className="sys-row"><span className="k">PHASE</span><span className="v">15</span></div>
     <div className="sys-row"><span className="k">MEMORY</span><span className="v ok">LOADED</span></div>
     <div className="sys-row"><span className="k">MODE</span><span className={`v clickable ${mode === "silent" ? "warn" : "ok"}`} onClick={onToggleMode}>{mode === "silent" ? "SILENT" : "VOICE"}</span></div>
     <div className="sys-row"><span className="k">BACKEND</span><span className={`v ${wsState === "connected" ? "ok" : "warn"}`}>{wsState.toUpperCase()}</span></div>
@@ -970,7 +1057,7 @@ const isToolMessage = (text) => {
   return patterns.some(p => text.includes(p));
 };
 
-const ConversationPanel = ({ pos, size, onDrag, onResize, onFocus, z, entries, onSend, visible }) => {
+const ConversationPanel = ({ pos, size, onDrag, onResize, onFocus, z, entries, onSend, visible, shimmer = true }) => {
   if (!visible) return null;
   const listRef = useRef(null);
   const [val, setVal] = useState("");
@@ -1046,7 +1133,7 @@ const ConversationPanel = ({ pos, size, onDrag, onResize, onFocus, z, entries, o
                 <span className="role">{e.role === "jarvis" ? "JARVIS" : "EDWARD"}</span>
                 <span>·</span><span>{e.ts}</span>
               </div>
-              <div className="conv-text">
+              <div className={`conv-text ${shimmer && isTyping ? "streaming" : ""}`}>
                 {displayText}
                 {isTyping && <span className="typing-cursor">|</span>}
               </div>
@@ -1167,7 +1254,7 @@ const UsagePanel = ({ pos, size, onDrag, onResize, onFocus, z, usage, visible })
 // ── Top-center clock ──────────────────────────────────────────────────────────────
 const TopClock = ({ time }) => {
   // time looks like "02:14:37 PM" — split numerals from meridiem
-  const m = (time || "").match(/^(\d{2}:\d{2}:\d{2})(?:\s+(AM|PM))?$/i);
+  const m = (time || "").match(/^(\d{1,2}:\d{2})(?::\d{2})?(?:\s+(AM|PM))?$/i);
   const hms = m ? m[1] : (time || "");
   const mer = m && m[2] ? m[2] : "";
 
@@ -1457,13 +1544,13 @@ const TimerPanel = ({ id, message, totalSeconds, startedAt, onDone }) => {
 
 
 // ── Avengers Animation System ─────────────────────────────────────────────────
-const PIXEL_SCALE = 3; // Each pixel in 16x16 grid = 3 actual pixels (48x48 total)
+const PIXEL_SCALE = 3; // Each grid pixel = 3 screen pixels (sprites are 16 wide × 24 tall → 48×72)
 
 // Agent to Avenger mapping
 const AGENT_TO_AVENGER = {
   'researcher':  'SPIDER_MAN',
   'architect':   'IRON_MAN',
-  'coder':       'IRON_MAN',
+  'coder':       'VISION',
   'career':      'CAPTAIN_AMERICA',
   'projects':    'THOR',
   'iris':        'BLACK_WIDOW',
@@ -1474,157 +1561,232 @@ const AGENT_TO_AVENGER = {
 // Pixel art sprites (16x16 grid, each pixel is a hex color or null for transparent)
 const AVENGER_SPRITES = {
   IRON_MAN: [
-    [null,null,null,null,null,"#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700",null,null,null,null,null],
-    [null,null,null,null,"#FFD700","#FFD700","#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0","#FFD700","#FFD700",null,null,null,null],
-    [null,null,null,"#FFD700","#C0C0C0","#00FFFF","#00FFFF","#C0C0C0","#C0C0C0","#00FFFF","#00FFFF","#C0C0C0","#FFD700",null,null,null],
-    [null,null,"#DC143C","#C0C0C0","#C0C0C0","#00FFFF","#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0","#00FFFF","#C0C0C0","#C0C0C0","#DC143C",null,null],
-    [null,"#DC143C","#DC143C","#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0","#FFD700","#FFD700","#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0","#DC143C","#DC143C",null],
-    [null,"#DC143C","#DC143C","#C0C0C0","#C0C0C0","#C0C0C0","#FFD700","#00FFFF","#00FFFF","#FFD700","#C0C0C0","#C0C0C0","#C0C0C0","#DC143C","#DC143C",null],
-    [null,"#DC143C","#DC143C","#DC143C","#C0C0C0","#C0C0C0","#FFD700","#FFD700","#FFD700","#FFD700","#C0C0C0","#C0C0C0","#DC143C","#DC143C","#DC143C",null],
-    [null,null,"#DC143C","#DC143C","#C0C0C0","#C0C0C0","#C0C0C0","#FFD700","#FFD700","#C0C0C0","#C0C0C0","#C0C0C0","#DC143C","#DC143C",null,null],
-    [null,null,null,"#DC143C","#DC143C","#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0","#DC143C","#DC143C",null,null,null],
-    [null,null,null,null,"#DC143C","#DC143C","#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0","#DC143C","#DC143C",null,null,null,null],
-    [null,null,null,null,null,"#DC143C","#DC143C","#C0C0C0","#C0C0C0","#DC143C","#DC143C",null,null,null,null,null],
-    [null,null,null,null,null,"#FFD700","#DC143C","#DC143C","#DC143C","#DC143C","#FFD700",null,null,null,null,null],
-    [null,null,null,null,"#FFD700","#FFD700","#DC143C","#DC143C","#DC143C","#DC143C","#FFD700","#FFD700",null,null,null,null],
-    [null,null,null,"#FFD700","#FFD700","#DC143C","#DC143C",null,null,"#DC143C","#DC143C","#FFD700","#FFD700",null,null,null],
-    [null,null,"#FFD700","#FFD700","#DC143C","#DC143C",null,null,null,null,"#DC143C","#DC143C","#FFD700","#FFD700",null,null],
-    [null,null,"#FFD700","#FFD700","#DC143C",null,null,null,null,null,null,"#DC143C","#FFD700","#FFD700",null,null],
+    [null,null,null,null,null,null,"#f4c430","#f4c430","#f4c430","#f4c430",null,null,null,null,null,null],
+    [null,null,null,null,null,"#f4c430","#ffe27a","#ffe27a","#ffe27a","#ffe27a","#f4c430",null,null,null,null,null],
+    [null,null,null,null,null,"#f4c430","#f4c430","#f4c430","#f4c430","#f4c430","#f4c430",null,null,null,null,null],
+    [null,null,null,null,null,"#f4c430","#9fe9ff","#f4c430","#f4c430","#9fe9ff","#f4c430",null,null,null,null,null],
+    [null,null,null,null,null,"#f4c430","#f4c430","#b9871f","#b9871f","#f4c430","#f4c430",null,null,null,null,null],
+    [null,null,null,null,null,null,"#f4c430","#f4c430","#f4c430","#f4c430",null,null,null,null,null,null],
+    [null,null,null,null,null,null,"#b9871f","#f4c430","#f4c430","#b9871f",null,null,null,null,null,null],
+    [null,null,null,null,"#d42a2a","#d42a2a","#d42a2a","#d42a2a","#d42a2a","#d42a2a","#d42a2a","#d42a2a",null,null,null,null],
+    [null,null,null,"#d42a2a","#d42a2a","#d42a2a","#d42a2a","#d42a2a","#d42a2a","#d42a2a","#d42a2a","#d42a2a","#d42a2a",null,null,null],
+    [null,null,null,"#d42a2a","#d42a2a","#d42a2a","#9fe9ff","#ffffff","#ffffff","#9fe9ff","#d42a2a","#d42a2a","#d42a2a",null,null,null],
+    [null,null,null,"#d42a2a","#d42a2a","#d42a2a","#9fe9ff","#ffffff","#ffffff","#9fe9ff","#d42a2a","#d42a2a","#d42a2a",null,null,null],
+    [null,null,"#9e1414","#d42a2a","#d42a2a","#d42a2a","#d42a2a","#d42a2a","#d42a2a","#d42a2a","#d42a2a","#d42a2a","#d42a2a","#9e1414",null,null],
+    [null,null,null,"#9e1414","#d42a2a","#d42a2a","#d42a2a","#d42a2a","#d42a2a","#d42a2a","#d42a2a","#d42a2a","#9e1414",null,null,null],
+    [null,null,null,"#f4c430","#f4c430","#b9871f","#d42a2a","#d42a2a","#d42a2a","#d42a2a","#b9871f","#f4c430","#f4c430",null,null,null],
+    [null,null,null,null,"#d42a2a","#d42a2a","#d42a2a","#d42a2a","#d42a2a","#d42a2a","#d42a2a","#d42a2a",null,null,null,null],
+    [null,null,null,null,"#b9871f","#f4c430","#f4c430","#f4c430","#f4c430","#f4c430","#f4c430","#b9871f",null,null,null,null],
+    [null,null,null,null,null,"#d42a2a","#d42a2a","#d42a2a","#d42a2a","#d42a2a","#d42a2a",null,null,null,null,null],
+    [null,null,null,null,null,"#d42a2a","#d42a2a",null,null,"#d42a2a","#d42a2a",null,null,null,null,null],
+    [null,null,null,null,null,"#9e1414","#d42a2a",null,null,"#d42a2a","#9e1414",null,null,null,null,null],
+    [null,null,null,null,null,"#d42a2a","#d42a2a",null,null,"#d42a2a","#d42a2a",null,null,null,null,null],
+    [null,null,null,null,null,"#d42a2a","#d42a2a",null,null,"#d42a2a","#d42a2a",null,null,null,null,null],
+    [null,null,null,null,null,"#9e1414","#d42a2a",null,null,"#d42a2a","#9e1414",null,null,null,null,null],
+    [null,null,null,null,"#f4c430","#f4c430","#f4c430",null,null,"#f4c430","#f4c430","#f4c430",null,null,null,null],
+    [null,null,null,null,"#b9871f","#ffe27a","#f4c430",null,null,"#f4c430","#ffe27a","#b9871f",null,null,null,null]
   ],
   THOR: [
-    [null,null,null,null,null,"#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700",null,null,null,null,null],
-    [null,null,null,null,"#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700",null,null,null,null],
-    [null,null,null,"#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700",null,null,null],
-    [null,null,"#0000FF","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#0000FF",null,null],
-    [null,"#0000FF","#0000FF","#FFD700","#FFD700","#FFD700","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFD700","#FFD700","#FFD700","#0000FF","#0000FF",null],
-    ["#0000FF","#0000FF","#C0C0C0","#FFE4B5","#FFE4B5","#FFE4B5","#000000","#FFE4B5","#FFE4B5","#000000","#FFE4B5","#FFE4B5","#FFE4B5","#C0C0C0","#0000FF","#0000FF"],
-    ["#0000FF","#C0C0C0","#C0C0C0","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#C0C0C0","#C0C0C0","#0000FF"],
-    [null,"#C0C0C0","#C0C0C0","#FFE4B5","#FFE4B5","#FFE4B5","#FF0000","#FFE4B5","#FFE4B5","#FF0000","#FFE4B5","#FFE4B5","#FFE4B5","#C0C0C0","#C0C0C0",null],
-    [null,null,"#C0C0C0","#C0C0C0","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#C0C0C0","#C0C0C0",null,null],
-    [null,null,null,"#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0","#FFE4B5","#FFE4B5","#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0",null,null,null],
-    [null,null,null,null,"#0000FF","#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0","#0000FF",null,null,null,null],
-    [null,null,null,null,"#0000FF","#0000FF","#C0C0C0","#C0C0C0","#C0C0C0","#C0C0C0","#0000FF","#0000FF",null,null,null,null],
-    [null,null,null,null,null,"#0000FF","#0000FF","#C0C0C0","#C0C0C0","#0000FF","#0000FF",null,null,null,null,null],
-    [null,null,null,null,null,"#0000FF","#0000FF",null,null,"#0000FF","#0000FF",null,null,null,null,null],
-    [null,null,null,null,null,"#0000FF","#0000FF",null,null,"#0000FF","#0000FF",null,null,null,null,null],
-    [null,null,null,null,null,"#696969","#0000FF",null,null,"#0000FF","#696969",null,null,null,null,null],
+    [null,null,null,null,"#f2d479","#f2d479","#f2d479","#f2d479","#f2d479","#f2d479","#f2d479","#f2d479",null,null,null,null],
+    [null,null,null,"#f2d479","#fff0b0","#fff0b0","#fff0b0","#fff0b0","#fff0b0","#fff0b0","#fff0b0","#fff0b0","#f2d479",null,null,null],
+    [null,null,null,"#f2d479","#f2d479","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#f2d479","#f2d479",null,null,null],
+    [null,null,null,"#f2d479","#f2d479","#e8b98c","#1c1c22","#e8b98c","#e8b98c","#1c1c22","#e8b98c","#f2d479","#f2d479",null,null,null],
+    [null,null,null,"#b8923a","#f2d479","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#f2d479","#b8923a",null,null,null],
+    [null,null,null,null,"#f2d479","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#f2d479",null,null,null,null],
+    [null,null,null,null,"#b8923a","#f2d479","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#f2d479","#b8923a",null,null,null,null],
+    [null,null,null,null,null,"#f2d479","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#f2d479",null,null,null,null,null],
+    [null,"#b5202a","#b5202a","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#b5202a","#b5202a",null],
+    [null,"#b5202a","#b5202a","#3b6fb8","#cfd6df","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#cfd6df","#3b6fb8","#b5202a","#b5202a",null],
+    [null,"#7e1620","#b5202a","#3b6fb8","#3b6fb8","#cfd6df","#cfd6df","#cfd6df","#cfd6df","#cfd6df","#cfd6df","#3b6fb8","#3b6fb8","#b5202a","#7e1620",null],
+    [null,null,"#1d3f63","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#1d3f63",null,null],
+    [null,null,"#1d3f63","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#1d3f63",null,null],
+    ["#aeb6c0","#aeb6c0","#aeb6c0","#cfd6df","#1d3f63","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#1d3f63","#cfd6df","#b5202a",null,null,null],
+    [null,"#5a626c",null,"#1c1c22","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8",null,null,null,null],
+    [null,"#5a626c",null,null,"#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8","#3b6fb8",null,null,null,null],
+    [null,"#5a626c",null,null,null,"#3b6fb8","#3b6fb8",null,null,"#3b6fb8","#3b6fb8",null,null,null,null,null],
+    [null,null,null,null,null,"#1d3f63","#3b6fb8",null,null,"#3b6fb8","#1d3f63",null,null,null,null,null],
+    [null,null,null,null,null,"#3b6fb8","#3b6fb8",null,null,"#3b6fb8","#3b6fb8",null,null,null,null,null],
+    [null,null,null,null,null,"#3b6fb8","#3b6fb8",null,null,"#3b6fb8","#3b6fb8",null,null,null,null,null],
+    [null,null,null,null,null,"#1d3f63","#3b6fb8",null,null,"#3b6fb8","#1d3f63",null,null,null,null,null],
+    [null,null,null,null,null,"#3b6fb8","#3b6fb8",null,null,"#3b6fb8","#3b6fb8",null,null,null,null,null],
+    [null,null,null,null,"#8a929c","#cfd6df","#cfd6df",null,null,"#cfd6df","#cfd6df","#8a929c",null,null,null,null],
+    [null,null,null,null,"#1c1c22","#8a929c","#8a929c",null,null,"#8a929c","#8a929c","#1c1c22",null,null,null,null]
   ],
   HULK: [
-    [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
-    [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],
-    [null,null,null,null,"#388E3C","#388E3C","#388E3C","#388E3C","#388E3C","#388E3C","#388E3C","#388E3C",null,null,null,null],
-    [null,null,null,"#388E3C","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#388E3C",null,null,null],
-    [null,null,"#388E3C","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#388E3C",null,null],
-    [null,null,"#4CAF50","#4CAF50","#FFFFFF","#FFFFFF","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#FFFFFF","#FFFFFF","#4CAF50","#4CAF50",null,null],
-    [null,null,"#4CAF50","#4CAF50","#388E3C","#388E3C","#388E3C","#388E3C","#388E3C","#388E3C","#388E3C","#388E3C","#4CAF50","#4CAF50",null,null],
-    [null,"#388E3C","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#388E3C",null],
-    ["#388E3C","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#388E3C"],
-    ["#388E3C","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#388E3C"],
-    [null,"#388E3C","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#388E3C",null],
-    [null,"#7B1FA2","#388E3C","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#388E3C","#7B1FA2",null],
-    [null,"#7B1FA2","#7B1FA2","#388E3C","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#388E3C","#7B1FA2","#7B1FA2",null],
-    [null,null,"#7B1FA2","#7B1FA2","#388E3C","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#388E3C","#7B1FA2","#7B1FA2",null,null],
-    [null,null,null,"#7B1FA2","#7B1FA2","#388E3C","#4CAF50","#4CAF50","#4CAF50","#4CAF50","#388E3C","#7B1FA2","#7B1FA2",null,null,null],
-    [null,null,null,null,"#7B1FA2","#7B1FA2","#388E3C","#388E3C","#388E3C","#388E3C","#7B1FA2","#7B1FA2",null,null,null,null],
+    [null,null,null,null,null,null,"#123d18","#123d18","#123d18","#123d18",null,null,null,null,null,null],
+    [null,null,null,null,null,"#123d18","#1b5e20","#1b5e20","#1b5e20","#1b5e20","#123d18",null,null,null,null,null],
+    [null,null,null,null,null,"#123d18","#1b5e20","#1b5e20","#1b5e20","#1b5e20","#123d18",null,null,null,null,null],
+    [null,null,null,null,null,"#226b2c","#43A047","#43A047","#43A047","#43A047","#226b2c",null,null,null,null,null],
+    [null,null,null,null,null,"#43A047","#ffffff","#43A047","#43A047","#ffffff","#43A047",null,null,null,null,null],
+    [null,null,null,null,null,"#43A047","#43A047","#0a0a0a","#0a0a0a","#43A047","#43A047",null,null,null,null,null],
+    [null,null,null,null,null,null,"#226b2c","#43A047","#43A047","#226b2c",null,null,null,null,null,null],
+    [null,null,null,"#226b2c","#226b2c","#43A047","#43A047","#43A047","#43A047","#43A047","#43A047","#226b2c","#226b2c",null,null,null],
+    [null,null,"#226b2c","#226b2c","#226b2c","#43A047","#43A047","#43A047","#43A047","#43A047","#43A047","#43A047","#226b2c","#226b2c",null,null],
+    [null,"#226b2c","#226b2c","#43A047","#43A047","#43A047","#43A047","#43A047","#43A047","#43A047","#43A047","#43A047","#226b2c","#226b2c",null,null],
+    [null,"#226b2c","#43A047","#66BB6A","#66BB6A","#43A047","#43A047","#43A047","#43A047","#43A047","#66BB6A","#66BB6A","#43A047","#226b2c",null,null],
+    [null,"#226b2c","#43A047","#43A047","#66BB6A","#226b2c","#226b2c","#226b2c","#226b2c","#66BB6A","#43A047","#43A047","#43A047","#226b2c",null,null],
+    [null,"#226b2c","#43A047","#43A047","#226b2c","#226b2c","#226b2c","#226b2c","#226b2c","#226b2c","#226b2c","#43A047","#43A047","#226b2c",null,null],
+    ["#226b2c","#226b2c","#226b2c","#43A047","#43A047","#43A047","#43A047","#43A047","#43A047","#43A047","#43A047","#226b2c","#226b2c","#226b2c","#226b2c",null],
+    ["#226b2c","#226b2c","#226b2c",null,"#5E3A8C","#5E3A8C","#5E3A8C","#5E3A8C","#5E3A8C","#5E3A8C","#5E3A8C","#5E3A8C",null,"#226b2c","#226b2c","#226b2c"],
+    [null,null,"#226b2c",null,"#5E3A8C","#7E57C2","#5E3A8C","#5E3A8C","#5E3A8C","#5E3A8C","#7E57C2","#5E3A8C",null,"#226b2c",null,null],
+    [null,null,null,"#5E3A8C","#5E3A8C","#3a2363","#3a2363","#5E3A8C","#5E3A8C","#3a2363","#3a2363","#5E3A8C","#5E3A8C",null,null,null],
+    [null,null,null,"#5E3A8C","#5E3A8C",null,"#5E3A8C","#5E3A8C","#5E3A8C","#5E3A8C",null,"#5E3A8C","#5E3A8C",null,null,null],
+    [null,null,null,"#43A047","#43A047","#43A047",null,null,"#43A047","#43A047","#43A047",null,null,null,null,null],
+    [null,null,"#226b2c","#43A047","#43A047","#43A047",null,null,"#43A047","#43A047","#43A047","#226b2c",null,null,null,null],
+    [null,null,"#226b2c","#43A047","#43A047","#43A047",null,null,"#43A047","#43A047","#43A047","#226b2c",null,null,null,null],
+    [null,null,"#226b2c","#43A047","#43A047",null,null,null,null,"#43A047","#43A047","#226b2c",null,null,null,null],
+    [null,null,"#226b2c","#226b2c","#226b2c",null,null,null,null,"#226b2c","#226b2c","#226b2c",null,null,null,null],
+    [null,null,"#226b2c","#226b2c","#226b2c",null,null,null,null,"#226b2c","#226b2c","#226b2c",null,null,null,null]
   ],
   CAPTAIN_AMERICA: [
-    [null,null,null,null,null,"#0000FF","#0000FF","#0000FF","#0000FF","#0000FF","#0000FF",null,null,null,null,null],
-    [null,null,null,null,"#0000FF","#0000FF","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#0000FF","#0000FF",null,null,null,null],
-    [null,null,null,"#0000FF","#FFE4B5","#FFE4B5","#000000","#FFE4B5","#FFE4B5","#000000","#FFE4B5","#FFE4B5","#0000FF",null,null,null],
-    [null,null,"#0000FF","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#0000FF",null,null],
-    [null,"#0000FF","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FF0000","#FFE4B5","#FFE4B5","#FF0000","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#0000FF",null],
-    [null,"#0000FF","#0000FF","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#0000FF","#0000FF",null],
-    [null,null,"#0000FF","#0000FF","#0000FF","#0000FF","#0000FF","#FFE4B5","#FFE4B5","#0000FF","#0000FF","#0000FF","#0000FF","#0000FF",null,null],
-    [null,null,null,"#0000FF","#0000FF","#0000FF","#0000FF","#0000FF","#0000FF","#0000FF","#0000FF","#0000FF","#0000FF",null,null,null],
-    [null,"#DC143C","#DC143C","#DC143C","#0000FF","#0000FF","#0000FF","#0000FF","#0000FF","#0000FF","#0000FF","#0000FF","#DC143C","#DC143C","#DC143C",null],
-    ["#DC143C","#DC143C","#FFFFFF","#FFFFFF","#DC143C","#0000FF","#0000FF",null,null,"#0000FF","#0000FF","#DC143C","#FFFFFF","#FFFFFF","#DC143C","#DC143C"],
-    ["#DC143C","#FFFFFF","#FFFFFF","#DC143C","#DC143C","#0000FF","#0000FF",null,null,"#0000FF","#0000FF","#DC143C","#DC143C","#FFFFFF","#FFFFFF","#DC143C"],
-    ["#DC143C","#FFFFFF","#DC143C","#DC143C","#0000FF","#0000FF",null,null,null,null,"#0000FF","#0000FF","#DC143C","#DC143C","#FFFFFF","#DC143C"],
-    ["#DC143C","#DC143C","#DC143C","#0000FF","#0000FF",null,null,null,null,null,null,"#0000FF","#0000FF","#DC143C","#DC143C","#DC143C"],
-    [null,null,"#0000FF","#0000FF",null,null,null,null,null,null,null,null,"#0000FF","#0000FF",null,null],
-    [null,null,"#0000FF","#0000FF",null,null,null,null,null,null,null,null,"#0000FF","#0000FF",null,null],
-    [null,null,"#696969","#696969",null,null,null,null,null,null,null,null,"#696969","#696969",null,null],
+    [null,null,null,null,null,"#2747b0","#2747b0","#2747b0","#2747b0","#2747b0","#2747b0",null,null,null,null,null],
+    [null,null,null,null,"#2747b0","#2747b0","#ffffff","#ffffff","#ffffff","#ffffff","#2747b0","#2747b0",null,null,null,null],
+    [null,null,null,null,"#2747b0","#2747b0","#2747b0","#ffffff","#ffffff","#2747b0","#2747b0","#2747b0",null,null,null,null],
+    [null,null,null,null,"#2747b0","#e8b98c","#0a1430","#e8b98c","#e8b98c","#0a1430","#e8b98c","#2747b0",null,null,null,null],
+    [null,null,null,null,"#2747b0","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#2747b0",null,null,null,null],
+    [null,null,null,null,null,"#e8b98c","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#e8b98c",null,null,null,null,null],
+    [null,null,null,null,null,null,"#2747b0","#e8b98c","#e8b98c","#2747b0",null,null,null,null,null,null],
+    [null,null,null,"#2747b0","#2747b0","#2747b0","#2747b0","#2747b0","#2747b0","#2747b0","#2747b0","#2747b0","#2747b0",null,null,null],
+    [null,null,null,"#2747b0","#2747b0","#2747b0","#2747b0","#ffffff","#ffffff","#2747b0","#2747b0","#2747b0","#2747b0",null,null,null],
+    [null,null,"#2747b0","#2747b0","#2747b0","#ffffff","#ffffff","#ffffff","#ffffff","#ffffff","#ffffff","#2747b0","#2747b0","#2747b0",null,null],
+    [null,null,"#2747b0","#2747b0","#ffffff","#ffffff","#ffffff","#ffffff","#ffffff","#ffffff","#ffffff","#ffffff","#2747b0","#2747b0",null,null],
+    [null,null,"#d42a2a","#2747b0","#2747b0","#ffffff","#ffffff","#ffffff","#ffffff","#ffffff","#ffffff","#2747b0","#2747b0","#d42a2a",null,null],
+    [null,null,"#d42a2a","#2747b0","#2747b0","#ffffff","#2747b0","#2747b0","#2747b0","#2747b0","#ffffff","#2747b0","#2747b0","#d42a2a",null,null],
+    [null,null,null,"#9e1422","#ffffff","#9e1422","#ffffff","#9e1422","#ffffff","#9e1422","#ffffff","#9e1422","#ffffff",null,null,null],
+    [null,null,null,"#9e1422","#ffffff","#9e1422","#ffffff","#9e1422","#ffffff","#9e1422","#ffffff","#9e1422","#ffffff",null,null,null],
+    [null,null,null,null,"#2747b0","#2747b0","#2747b0","#2747b0","#2747b0","#2747b0","#2747b0","#2747b0",null,null,null,null],
+    [null,null,null,null,"#2747b0","#5a7fe0","#2747b0","#2747b0","#2747b0","#2747b0","#5a7fe0","#2747b0",null,null,null,null],
+    [null,null,null,null,null,"#2747b0","#2747b0",null,null,"#2747b0","#2747b0",null,null,null,null,null],
+    [null,null,null,null,null,"#1b3a86","#2747b0",null,null,"#2747b0","#1b3a86",null,null,null,null,null],
+    [null,null,null,null,null,"#2747b0","#2747b0",null,null,"#2747b0","#2747b0",null,null,null,null,null],
+    [null,null,null,null,null,"#2747b0","#2747b0",null,null,"#2747b0","#2747b0",null,null,null,null,null],
+    [null,null,null,null,null,"#1b3a86","#2747b0",null,null,"#2747b0","#1b3a86",null,null,null,null,null],
+    [null,null,null,null,"#d42a2a","#d42a2a","#d42a2a",null,null,"#d42a2a","#d42a2a","#d42a2a",null,null,null,null],
+    [null,null,null,null,"#9e1422","#d42a2a","#d42a2a",null,null,"#d42a2a","#d42a2a","#9e1422",null,null,null,null]
   ],
   SPIDER_MAN: [
-    [null,null,null,null,null,"#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C",null,null,null,null,null],
-    [null,null,null,null,"#DC143C","#DC143C","#000000","#DC143C","#DC143C","#000000","#DC143C","#DC143C",null,null,null,null],
-    [null,null,null,"#DC143C","#000000","#FFFFFF","#FFFFFF","#000000","#000000","#FFFFFF","#FFFFFF","#000000","#DC143C",null,null,null],
-    [null,null,"#DC143C","#DC143C","#000000","#FFFFFF","#000000","#000000","#000000","#000000","#FFFFFF","#000000","#DC143C","#DC143C",null,null],
-    [null,"#DC143C","#DC143C","#DC143C","#DC143C","#000000","#000000","#DC143C","#DC143C","#000000","#000000","#DC143C","#DC143C","#DC143C","#DC143C",null],
-    [null,"#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#000000","#000000","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C",null],
-    [null,"#0000FF","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#0000FF",null],
-    [null,null,"#0000FF","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#0000FF",null,null],
-    [null,null,null,"#0000FF","#0000FF","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#0000FF","#0000FF",null,null,null],
-    [null,null,null,null,"#0000FF","#0000FF","#0000FF","#DC143C","#DC143C","#0000FF","#0000FF","#0000FF",null,null,null,null],
-    [null,null,null,null,null,"#0000FF","#0000FF","#0000FF","#0000FF","#0000FF","#0000FF",null,null,null,null,null],
-    [null,null,null,null,null,"#DC143C","#0000FF","#0000FF","#0000FF","#0000FF","#DC143C",null,null,null,null,null],
-    [null,null,null,null,"#DC143C","#DC143C","#0000FF",null,null,"#0000FF","#DC143C","#DC143C",null,null,null,null],
-    [null,null,null,"#DC143C","#DC143C","#0000FF",null,null,null,null,"#0000FF","#DC143C","#DC143C",null,null,null],
-    [null,null,"#DC143C","#DC143C",null,null,null,null,null,null,null,null,"#DC143C","#DC143C",null,null],
-    [null,null,"#DC143C","#DC143C",null,null,null,null,null,null,null,null,"#DC143C","#DC143C",null,null],
+    [null,null,null,null,null,"#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b",null,null,null,null,null],
+    [null,null,null,null,"#c81e2b","#8a1420","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#8a1420","#c81e2b",null,null,null,null],
+    [null,null,null,null,"#c81e2b","#ffffff","#ffffff","#c81e2b","#c81e2b","#ffffff","#ffffff","#c81e2b",null,null,null,null],
+    [null,null,null,"#c81e2b","#0a0a0a","#ffffff","#ffffff","#c81e2b","#c81e2b","#ffffff","#ffffff","#0a0a0a","#c81e2b",null,null,null],
+    [null,null,null,null,"#c81e2b","#ffffff","#ffffff","#c81e2b","#c81e2b","#ffffff","#ffffff","#c81e2b",null,null,null,null],
+    [null,null,null,null,null,"#c81e2b","#8a1420","#c81e2b","#c81e2b","#8a1420","#c81e2b",null,null,null,null,null],
+    [null,null,null,null,null,null,"#c81e2b","#c81e2b","#c81e2b","#c81e2b",null,null,null,null,null,null],
+    [null,null,null,"#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b",null,null,null],
+    [null,null,"#8a1420","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#8a1420",null,null],
+    [null,null,"#c81e2b","#c81e2b","#c81e2b","#8a1420","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#8a1420","#c81e2b","#c81e2b","#c81e2b",null,null],
+    [null,null,"#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b",null,null],
+    [null,null,"#8a1420","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#8a1420",null,null],
+    [null,null,null,"#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b","#c81e2b",null,null,null],
+    [null,null,null,null,"#13245a","#1e3a8c","#1e3a8c","#1e3a8c","#1e3a8c","#1e3a8c","#1e3a8c","#13245a",null,null,null,null],
+    [null,null,null,null,"#1e3a8c","#1e3a8c","#1e3a8c","#1e3a8c","#1e3a8c","#1e3a8c","#1e3a8c","#1e3a8c",null,null,null,null],
+    [null,null,null,null,"#1e3a8c","#3f5fc0","#1e3a8c","#1e3a8c","#1e3a8c","#1e3a8c","#3f5fc0","#1e3a8c",null,null,null,null],
+    [null,null,null,null,null,"#1e3a8c","#1e3a8c",null,null,"#1e3a8c","#1e3a8c",null,null,null,null,null],
+    [null,null,null,null,null,"#13245a","#1e3a8c",null,null,"#1e3a8c","#13245a",null,null,null,null,null],
+    [null,null,null,null,null,"#1e3a8c","#1e3a8c",null,null,"#1e3a8c","#1e3a8c",null,null,null,null,null],
+    [null,null,null,null,null,"#1e3a8c","#1e3a8c",null,null,"#1e3a8c","#1e3a8c",null,null,null,null,null],
+    [null,null,null,null,null,"#13245a","#1e3a8c",null,null,"#1e3a8c","#13245a",null,null,null,null,null],
+    [null,null,null,null,null,"#1e3a8c","#1e3a8c",null,null,"#1e3a8c","#1e3a8c",null,null,null,null,null],
+    [null,null,null,null,"#c81e2b","#c81e2b","#c81e2b",null,null,"#c81e2b","#c81e2b","#c81e2b",null,null,null,null],
+    [null,null,null,null,"#8a1420","#c81e2b","#c81e2b",null,null,"#c81e2b","#c81e2b","#8a1420",null,null,null,null]
   ],
   BLACK_WIDOW: [
-    [null,null,null,null,null,"#000000","#000000","#000000","#000000","#000000","#000000",null,null,null,null,null],
-    [null,null,null,null,"#000000","#000000","#000000","#000000","#000000","#000000","#000000","#000000",null,null,null,null],
-    [null,null,null,"#000000","#FFE4B5","#FFE4B5","#000000","#FFE4B5","#FFE4B5","#000000","#FFE4B5","#FFE4B5","#000000",null,null,null],
-    [null,null,"#000000","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#000000",null,null],
-    [null,"#000000","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FF0000","#FFE4B5","#FFE4B5","#FF0000","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#000000",null],
-    [null,"#000000","#000000","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#000000","#000000",null],
-    [null,null,"#000000","#000000","#000000","#000000","#000000","#FFE4B5","#FFE4B5","#000000","#000000","#000000","#000000","#000000",null,null],
-    [null,null,null,"#000000","#000000","#000000","#000000","#000000","#000000","#000000","#000000","#000000","#000000",null,null,null],
-    [null,null,null,null,"#000000","#000000","#000000","#000000","#000000","#000000","#000000","#000000",null,null,null,null],
-    [null,null,null,null,null,"#000000","#000000","#000000","#000000","#000000","#000000",null,null,null,null,null],
-    [null,null,null,null,null,"#DC143C","#000000","#000000","#000000","#000000","#DC143C",null,null,null,null,null],
-    [null,null,null,null,"#DC143C","#DC143C","#000000",null,null,"#000000","#DC143C","#DC143C",null,null,null,null],
-    [null,null,null,"#DC143C","#DC143C","#000000","#000000",null,null,"#000000","#000000","#DC143C","#DC143C",null,null,null],
-    [null,null,"#DC143C","#DC143C","#000000","#000000",null,null,null,null,"#000000","#000000","#DC143C","#DC143C",null,null],
-    [null,null,"#000000","#000000","#000000",null,null,null,null,null,null,"#000000","#000000","#000000",null,null],
-    [null,null,"#696969","#696969",null,null,null,null,null,null,null,null,"#696969","#696969",null,null],
+    [null,null,null,null,null,"#c24a2a","#c24a2a","#c24a2a","#c24a2a","#c24a2a","#c24a2a",null,null,null,null,null],
+    [null,null,null,null,"#c24a2a","#e07a3a","#c24a2a","#c24a2a","#c24a2a","#c24a2a","#e07a3a","#c24a2a",null,null,null,null],
+    [null,null,null,"#c24a2a","#c24a2a","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#c24a2a","#c24a2a",null,null,null],
+    [null,null,null,"#c24a2a","#c24a2a","#e8b98c","#08080c","#e8b98c","#e8b98c","#08080c","#e8b98c","#c24a2a","#c24a2a",null,null,null],
+    [null,null,null,"#c24a2a","#c24a2a","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#c24a2a","#c24a2a",null,null,null],
+    [null,null,null,null,"#c24a2a","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#c24a2a",null,null,null,null],
+    [null,null,null,null,"#c24a2a","#7a2e18","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#7a2e18","#c24a2a",null,null,null,null],
+    [null,null,null,"#08080c","#16161d","#16161d","#16161d","#16161d","#16161d","#16161d","#16161d","#16161d","#08080c",null,null,null],
+    [null,null,"#08080c","#16161d","#16161d","#26262f","#16161d","#16161d","#16161d","#16161d","#26262f","#16161d","#16161d","#08080c",null,null],
+    [null,null,"#08080c","#16161d","#16161d","#16161d","#26262f","#26262f","#26262f","#26262f","#16161d","#16161d","#16161d","#08080c",null,null],
+    [null,null,"#08080c","#16161d","#16161d","#16161d","#16161d","#16161d","#16161d","#16161d","#16161d","#16161d","#16161d","#08080c",null,null],
+    [null,null,"#08080c","#16161d","#16161d","#16161d","#16161d","#16161d","#16161d","#16161d","#16161d","#16161d","#16161d","#08080c",null,null],
+    [null,null,"#26262f","#16161d","#16161d","#16161d","#16161d","#16161d","#16161d","#16161d","#16161d","#16161d","#16161d","#26262f",null,null],
+    [null,null,null,"#3a3f49","#3a3f49","#c62534","#3a3f49","#3a3f49","#3a3f49","#3a3f49","#c62534","#3a3f49","#3a3f49",null,null,null],
+    [null,null,null,"#08080c","#16161d","#16161d","#16161d","#16161d","#16161d","#16161d","#16161d","#16161d","#08080c",null,null,null],
+    ["#5bc8ff","#5bc8ff",null,"#08080c","#16161d","#16161d","#16161d","#16161d","#16161d","#16161d","#08080c","#08080c",null,"#5bc8ff","#5bc8ff",null],
+    [null,null,null,null,null,"#16161d","#16161d",null,null,"#16161d","#16161d",null,null,null,null,null],
+    [null,null,null,null,null,"#08080c","#16161d",null,null,"#16161d","#08080c",null,null,null,null,null],
+    [null,null,null,null,null,"#16161d","#16161d",null,null,"#16161d","#16161d",null,null,null,null,null],
+    [null,null,null,null,null,"#16161d","#16161d",null,null,"#16161d","#16161d",null,null,null,null,null],
+    [null,null,null,null,null,"#08080c","#16161d",null,null,"#16161d","#08080c",null,null,null,null,null],
+    [null,null,null,null,null,"#16161d","#16161d",null,null,"#16161d","#16161d",null,null,null,null,null],
+    [null,null,null,null,null,"#16161d","#16161d",null,null,"#16161d","#16161d",null,null,null,null,null],
+    [null,null,null,null,null,"#08080c","#08080c",null,null,"#08080c","#08080c",null,null,null,null,null]
   ],
   HAWKEYE: [
-    [null,null,null,null,null,"#4B0082","#4B0082","#4B0082","#4B0082","#4B0082","#4B0082",null,null,null,null,null],
-    [null,null,null,null,"#4B0082","#4B0082","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#4B0082","#4B0082",null,null,null,null],
-    [null,null,null,"#4B0082","#FFE4B5","#FFE4B5","#000000","#FFE4B5","#FFE4B5","#000000","#FFE4B5","#FFE4B5","#4B0082",null,null,null],
-    [null,null,"#4B0082","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#4B0082",null,null],
-    [null,"#4B0082","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FF0000","#FFE4B5","#FFE4B5","#FF0000","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#4B0082",null],
-    [null,"#4B0082","#4B0082","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#FFE4B5","#4B0082","#4B0082",null],
-    [null,null,"#4B0082","#4B0082","#4B0082","#4B0082","#4B0082","#FFE4B5","#FFE4B5","#4B0082","#4B0082","#4B0082","#4B0082","#4B0082",null,null],
-    [null,null,null,"#4B0082","#4B0082","#4B0082","#4B0082","#4B0082","#4B0082","#4B0082","#4B0082","#4B0082","#4B0082",null,null,null],
-    [null,null,null,null,"#4B0082","#4B0082","#4B0082","#4B0082","#4B0082","#4B0082","#4B0082","#4B0082",null,"#696969","#696969","#696969"],
-    [null,null,null,null,null,"#4B0082","#4B0082","#4B0082","#4B0082","#4B0082","#4B0082",null,"#696969","#696969","#696969","#696969"],
-    [null,null,null,null,null,"#4B0082","#4B0082",null,null,"#4B0082","#4B0082",null,null,"#696969","#696969",null],
-    [null,null,null,null,null,"#4B0082","#4B0082",null,null,"#4B0082","#4B0082",null,null,null,null,null],
-    [null,null,null,null,null,"#4B0082","#4B0082",null,null,"#4B0082","#4B0082",null,null,null,null,null],
-    [null,null,null,null,null,"#4B0082","#4B0082",null,null,"#4B0082","#4B0082",null,null,null,null,null],
-    [null,null,null,null,null,"#4B0082","#4B0082",null,null,"#4B0082","#4B0082",null,null,null,null,null],
-    [null,null,null,null,null,"#696969","#696969",null,null,"#696969","#696969",null,null,null,null,null],
+    [null,null,null,null,null,"#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e",null,null,null,null,null],
+    [null,null,null,null,"#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e",null,null,null,null],
+    [null,null,null,null,"#0c0c12","#0c0c12","#0c0c12","#0c0c12","#0c0c12","#0c0c12","#0c0c12","#0c0c12",null,null,null,null],
+    [null,null,null,"#b98a3a","#0c0c12","#e8b98c","#e8b98c","#0c0c12","#0c0c12","#e8b98c","#e8b98c","#0c0c12",null,null,null,null],
+    [null,null,"#b98a3a",null,"#e8b98c","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#e8b98c",null,null,null,null],
+    [null,null,"#b98a3a",null,null,"#e8b98c","#e8b98c","#e8b98c","#e8b98c","#e8b98c","#e8b98c",null,null,null,null,null],
+    [null,null,"#b98a3a",null,null,null,"#2a2a30","#e8b98c","#e8b98c","#2a2a30",null,null,null,null,null,null],
+    [null,null,"#b98a3a",null,"#2a2a30","#44444c","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#44444c","#2a2a30",null,null],
+    [null,null,"#b98a3a",null,"#2a2a30","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#44444c","#2a2a30",null],
+    [null,null,"#b98a3a",null,"#2a2a30","#5b3e8e","#0c0c12","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#0c0c12","#5b3e8e","#44444c","#2a2a30",null],
+    [null,null,"#b98a3a",null,"#2a2a30","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#44444c","#2a2a30",null],
+    [null,null,"#b98a3a",null,"#2a2a30","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#44444c","#2a2a30",null],
+    [null,null,"#b98a3a",null,null,"#0c0c12","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#0c0c12",null,null,null],
+    [null,null,"#b98a3a",null,null,"#2a2a30","#0c0c12","#0c0c12","#0c0c12","#0c0c12","#0c0c12","#0c0c12","#2a2a30",null,null,null],
+    [null,"#b98a3a",null,null,null,"#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e","#5b3e8e",null,null,null],
+    [null,"#b98a3a",null,null,null,null,"#5b3e8e","#5b3e8e",null,null,"#5b3e8e","#5b3e8e",null,null,null,null],
+    ["#b98a3a",null,null,null,null,null,"#3a2a55","#5b3e8e",null,null,"#5b3e8e","#3a2a55",null,null,null,null],
+    ["#b98a3a",null,null,null,null,null,"#5b3e8e","#5b3e8e",null,null,"#5b3e8e","#5b3e8e",null,null,null,null],
+    [null,null,null,null,null,null,"#5b3e8e","#5b3e8e",null,null,"#5b3e8e","#5b3e8e",null,null,null,null],
+    [null,null,null,null,null,null,"#3a2a55","#5b3e8e",null,null,"#5b3e8e","#3a2a55",null,null,null,null],
+    [null,null,null,null,null,null,"#5b3e8e","#5b3e8e",null,null,"#5b3e8e","#5b3e8e",null,null,null,null],
+    [null,null,null,null,null,null,"#0c0c12","#0c0c12",null,null,"#0c0c12","#0c0c12",null,null,null,null],
+    [null,null,null,null,null,null,"#0c0c12","#0c0c12",null,null,"#0c0c12","#0c0c12",null,null,null,null],
+    [null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null]
   ],
   VISION: [
-    [null,null,null,null,null,"#FFD700","#FFD700","#FFD700","#FFD700","#FFD700","#FFD700",null,null,null,null,null],
-    [null,null,null,null,"#FFD700","#FFD700","#DC143C","#DC143C","#DC143C","#DC143C","#FFD700","#FFD700",null,null,null,null],
-    [null,null,null,"#FFD700","#DC143C","#DC143C","#FFFF00","#DC143C","#DC143C","#FFFF00","#DC143C","#DC143C","#FFD700",null,null,null],
-    [null,null,"#228B22","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#228B22",null,null],
-    [null,"#228B22","#228B22","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#228B22","#228B22",null],
-    ["#228B22","#228B22","#FFD700","#DC143C","#DC143C","#DC143C","#DC143C","#FFFF00","#FFFF00","#DC143C","#DC143C","#DC143C","#DC143C","#FFD700","#228B22","#228B22"],
-    ["#228B22","#FFD700","#FFD700","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#FFD700","#FFD700","#228B22"],
-    [null,"#FFD700","#FFD700","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#FFD700","#FFD700",null],
-    [null,null,"#FFD700","#FFD700","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#FFD700","#FFD700",null,null],
-    [null,null,null,"#FFD700","#FFD700","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#DC143C","#FFD700","#FFD700",null,null,null],
-    [null,null,null,null,"#FFD700","#FFD700","#DC143C","#DC143C","#DC143C","#DC143C","#FFD700","#FFD700",null,null,null,null],
-    [null,null,null,null,null,"#FFD700","#FFD700","#DC143C","#DC143C","#FFD700","#FFD700",null,null,null,null,null],
-    [null,null,null,null,null,"#FFD700","#FFD700",null,null,"#FFD700","#FFD700",null,null,null,null,null],
-    [null,null,null,null,null,"#FFD700","#FFD700",null,null,"#FFD700","#FFD700",null,null,null,null,null],
-    [null,null,null,null,null,"#228B22","#FFD700",null,null,"#FFD700","#228B22",null,null,null,null,null],
-    [null,null,null,null,null,"#228B22","#228B22",null,null,"#228B22","#228B22",null,null,null,null,null],
+    [null,null,null,null,null,"#c0392b","#c0392b","#c0392b","#c0392b","#c0392b","#c0392b",null,null,null,null,null],
+    [null,null,null,null,"#c0392b","#c0392b","#e25c4a","#e25c4a","#e25c4a","#e25c4a","#c0392b","#c0392b",null,null,null,null],
+    [null,null,null,null,"#c0392b","#c0392b","#c0392b","#ffd24a","#ffd24a","#c0392b","#c0392b","#c0392b",null,null,null,null],
+    [null,null,null,null,"#c0392b","#c0392b","#fff0b0","#ffd24a","#ffd24a","#fff0b0","#c0392b","#c0392b",null,null,null,null],
+    [null,null,null,null,"#c0392b","#e0b84a","#ffffff","#c0392b","#c0392b","#ffffff","#e0b84a","#c0392b",null,null,null,null],
+    [null,null,null,null,"#c0392b","#e0b84a","#c0392b","#c0392b","#c0392b","#c0392b","#e0b84a","#c0392b",null,null,null,null],
+    [null,null,null,null,null,"#c0392b","#c0392b","#c0392b","#c0392b","#c0392b","#c0392b",null,null,null,null,null],
+    [null,null,null,null,null,null,"#e0b84a","#c0392b","#c0392b","#e0b84a",null,null,null,null,null,null],
+    [null,null,null,"#0e4a28","#0e4a28","#1e7a46","#1e7a46","#1e7a46","#1e7a46","#1e7a46","#1e7a46","#0e4a28","#0e4a28",null,null,null],
+    [null,null,"#0e4a28","#0e4a28","#1e7a46","#e0b84a","#1e7a46","#1e7a46","#1e7a46","#1e7a46","#e0b84a","#1e7a46","#0e4a28","#0e4a28",null,null],
+    [null,null,"#0e4a28","#0e4a28","#1e7a46","#1e7a46","#e0b84a","#e0b84a","#e0b84a","#e0b84a","#1e7a46","#1e7a46","#0e4a28","#0e4a28",null,null],
+    [null,null,"#0e4a28","#0e4a28","#1e7a46","#1e7a46","#1e7a46","#1e7a46","#1e7a46","#1e7a46","#1e7a46","#1e7a46","#0e4a28","#0e4a28",null,null],
+    [null,null,null,"#0e4a28","#1e7a46","#1e7a46","#1e7a46","#1e7a46","#1e7a46","#1e7a46","#1e7a46","#1e7a46","#0e4a28",null,null,null],
+    [null,null,null,"#e0b84a","#1e7a46","#1e7a46","#1e7a46","#1e7a46","#1e7a46","#1e7a46","#1e7a46","#1e7a46","#e0b84a",null,null,null],
+    [null,null,null,null,"#1e7a46","#1e7a46","#1e7a46","#1e7a46","#1e7a46","#1e7a46","#1e7a46","#1e7a46",null,null,null,null],
+    [null,null,null,null,"#e0b84a","#1e7a46","#1e7a46","#1e7a46","#1e7a46","#1e7a46","#1e7a46","#e0b84a",null,null,null,null],
+    [null,null,null,null,null,"#1e7a46","#1e7a46",null,null,"#1e7a46","#1e7a46",null,null,null,null,null],
+    [null,null,null,null,null,"#0e4a28","#1e7a46",null,null,"#1e7a46","#0e4a28",null,null,null,null,null],
+    [null,null,null,null,null,"#1e7a46","#1e7a46",null,null,"#1e7a46","#1e7a46",null,null,null,null,null],
+    [null,null,null,null,null,"#1e7a46","#1e7a46",null,null,"#1e7a46","#1e7a46",null,null,null,null,null],
+    [null,null,null,null,null,"#0e4a28","#1e7a46",null,null,"#1e7a46","#0e4a28",null,null,null,null,null],
+    [null,null,null,null,null,"#1e7a46","#1e7a46",null,null,"#1e7a46","#1e7a46",null,null,null,null,null],
+    [null,null,null,null,null,"#e0b84a","#e0b84a",null,null,"#e0b84a","#e0b84a",null,null,null,null,null],
+    [null,null,null,null,null,"#caa024","#caa024",null,null,"#caa024","#caa024",null,null,null,null,null]
   ],
 };
 
+
 // Avengers Canvas Component
-const AvengersCanvas = ({ agentEvents }) => {
+const HERO_HUE = {
+  IRON_MAN: "#FFB020", THOR: "#7FB0E8", HULK: "#6BD46B",
+  CAPTAIN_AMERICA: "#5A7FE0", SPIDER_MAN: "#FF5A66", BLACK_WIDOW: "#FF5A5A",
+  HAWKEYE: "#A98BE6", VISION: "#FFD24A",
+};
+
+const AvengersCanvas = ({ agentEvents, contrails = true, nameplates = true, idlePatrol = true }) => {
   const canvasRef = useRef(null);
   const spritesRef = useRef(new Map()); // Map<agentName, sprite> - max 8 sprites
   const animationRef = useRef(null);
   const trailsRef = useRef([]); // Trail particles: { x, y, color, opacity, life, maxLife }
+  const optsRef = useRef({});
+  optsRef.current = { contrails, nameplates, idlePatrol };
+  const patrolRef = useRef(null);
+  const nextPatrolRef = useRef(Date.now() + 4000);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -1651,12 +1813,48 @@ const AvengersCanvas = ({ agentEvents }) => {
         if (t.life <= 0) return false;
         ctx.fillStyle = t.color;
         ctx.globalAlpha = t.opacity;
+        if (t.glow) { ctx.shadowBlur = (t.size || 2) * 2.6; ctx.shadowColor = t.color; }
         ctx.fillRect(t.x, t.y, t.size || 2, t.size || 2);
+        ctx.shadowBlur = 0;
         ctx.globalAlpha = 1;
         // Spread dust particles
         if (t.spread) { t.x += t.vx; t.y += t.vy; }
         return true;
       });
+
+      // Idle patrol — when no real agents are active, a hero drifts slowly across
+      if (optsRef.current.idlePatrol && spritesRef.current.size === 0) {
+        if (!patrolRef.current && now >= nextPatrolRef.current) {
+          const heroes = Object.keys(AVENGER_SPRITES);
+          const character = heroes[Math.floor(Math.random() * heroes.length)];
+          const fromLeft = Math.random() < 0.5;
+          const px = AVENGER_SPRITES[character];
+          patrolRef.current = {
+            character, x: fromLeft ? -70 : canvas.width + 70,
+            y: 90 + Math.random() * Math.max(40, canvas.height - 320),
+            vx: fromLeft ? 1.05 : -1.05, vy: 0, rotation: 0, scale: 1, bob: Math.random() * 6,
+            cx: px[0].length * PIXEL_SCALE / 2, cy: px.length * PIXEL_SCALE / 2,
+          };
+        }
+      } else if (patrolRef.current && spritesRef.current.size > 0) {
+        patrolRef.current = null;
+      }
+      if (patrolRef.current) {
+        const p = patrolRef.current;
+        p.x += p.vx;
+        p.bob += 0.02;
+        p.bobOffset = Math.sin(p.bob) * 3;
+        p.rotation = Math.max(-0.18, Math.min(0.18, p.vx * 0.05));
+        if (p.x < -130 || p.x > canvas.width + 130) {
+          patrolRef.current = null;
+          nextPatrolRef.current = now + 6000 + Math.random() * 9000;
+        } else {
+          if (optsRef.current.contrails && Math.random() < 0.5) {
+            trailsRef.current.push({ x: p.x + p.cx + (Math.random() - 0.5) * 8, y: p.y + p.cy + (Math.random() - 0.5) * 8, color: HERO_HUE[p.character] || "#9fe9ff", opacity: 0.3, life: 16, maxLife: 16, size: 3, glow: true });
+          }
+          drawSpriteAt(ctx, p, p.x, p.y + (p.bobOffset || 0), 0.3);
+        }
+      }
 
       // Update and draw sprites
       spritesRef.current.forEach((sprite, agentName) => {
@@ -1694,11 +1892,25 @@ const AvengersCanvas = ({ agentEvents }) => {
           }
         }
 
+        // Hero-tinted engine contrail behind flyers
+        if (optsRef.current.contrails && sprite.phase === "flying") {
+          trailsRef.current.push({
+            x: sprite.x + (sprite.cx || 24) + (Math.random() - 0.5) * 8,
+            y: sprite.y + (sprite.cy || 36) + (Math.random() - 0.5) * 8,
+            color: sprite.hue || "#9fe9ff", opacity: 0.5, life: 16, maxLife: 16, size: 4, glow: true,
+          });
+        }
+
         // Draw character-specific effects
         drawCharacterEffects(ctx, sprite, elapsed, now);
 
         // Draw sprite
         drawSprite(ctx, sprite, now);
+
+        // Nameplate fades in beneath the sprite for its first ~1.8s
+        if (optsRef.current.nameplates && sprite.phase === "flying") {
+          drawNameplate(ctx, sprite, now);
+        }
       });
 
       animationRef.current = requestAnimationFrame(animate);
@@ -1706,74 +1918,83 @@ const AvengersCanvas = ({ agentEvents }) => {
 
     const updateSpritePhysics = (sprite, elapsed, canvas, now) => {
       const char = sprite.character;
+      const clampTilt = (v) => Math.max(-0.32, Math.min(0.32, v));
 
       if (char === "IRON_MAN") {
-        // Figure-8 loop
-        if (!sprite.loopPhase) sprite.loopPhase = 0;
-        sprite.loopPhase += 0.015;
+        // Smooth figure-8 flight — body stays upright with a gentle bank
+        if (sprite.loopPhase === undefined) sprite.loopPhase = Math.PI / 2;
+        sprite.loopPhase += 0.012;
         const centerX = canvas.width / 2;
-        const centerY = canvas.height * 0.3;
-        const radiusX = 300;
-        const radiusY = 150;
+        const centerY = canvas.height * 0.32;
+        const radiusX = Math.min(320, canvas.width * 0.32);
+        const radiusY = 130;
         const newX = centerX + Math.sin(sprite.loopPhase) * radiusX;
         const newY = centerY + Math.sin(sprite.loopPhase * 2) * radiusY;
         sprite.vx = newX - sprite.x;
         sprite.vy = newY - sprite.y;
         sprite.x = newX;
         sprite.y = newY;
-        sprite.rotation = Math.atan2(sprite.vy, sprite.vx);
-        // Thruster trail
-        if (Math.random() < 0.6) {
-          trailsRef.current.push({ x: sprite.x + 24, y: sprite.y + 24, color: "#FF4500", opacity: 0.8, life: 20, maxLife: 20, size: 3 });
+        sprite.rotation = clampTilt(sprite.vx * 0.03);
+        sprite.bobOffset = 0;
+        // Repulsor thruster trail from the boots
+        if (Math.random() < 0.7) {
+          trailsRef.current.push({ x: sprite.x + 24 + (Math.random() - 0.5) * 10, y: sprite.y + 44, color: Math.random() < 0.5 ? "#FF6B1A" : "#FFD24A", opacity: 0.8, life: 18, maxLife: 18, size: 3 });
         }
       } else if (char === "THOR") {
-        // Sweeping arcs with redirection
-        if (!sprite.nextRedirect) sprite.nextRedirect = now + 2000;
+        // Sweeping flight that eases between headings (no teleporting)
+        if (sprite.tvx === undefined) { sprite.tvx = (Math.random() - 0.5) * 5; sprite.tvy = (Math.random() - 0.5) * 3; sprite.nextRedirect = now + 2600; }
         if (now >= sprite.nextRedirect) {
-          sprite.vx = (Math.random() - 0.5) * 6;
-          sprite.vy = (Math.random() - 0.5) * 6;
-          sprite.nextRedirect = now + 2000;
-          // Lightning burst
-          for (let i = 0; i < 8; i++) {
+          sprite.tvx = (Math.random() - 0.5) * 6;
+          sprite.tvy = (Math.random() - 0.5) * 3.2;
+          sprite.nextRedirect = now + 2200 + Math.random() * 1400;
+          // Lightning burst on redirect
+          for (let i = 0; i < 6; i++) {
             trailsRef.current.push({
-              x: sprite.x + 24 + (Math.random() - 0.5) * 30,
-              y: sprite.y + 24 + (Math.random() - 0.5) * 30,
-              color: "#FFFF00",
+              x: sprite.x + 24 + (Math.random() - 0.5) * 28,
+              y: sprite.y + 24 + (Math.random() - 0.5) * 28,
+              color: "#FFF36B",
               opacity: 1,
-              life: 30,
-              maxLife: 30,
+              life: 26,
+              maxLife: 26,
               size: 2,
             });
           }
         }
+        // Soft steer away from edges, then ease velocity toward target
+        const tmgn = 90;
+        if (sprite.x < tmgn) sprite.tvx += 0.25;
+        if (sprite.x > canvas.width - tmgn) sprite.tvx -= 0.25;
+        if (sprite.y < tmgn) sprite.tvy += 0.25;
+        if (sprite.y > canvas.height - tmgn) sprite.tvy -= 0.25;
+        sprite.vx += (sprite.tvx - sprite.vx) * 0.05;
+        sprite.vy += (sprite.tvy - sprite.vy) * 0.05;
         sprite.x += sprite.vx;
         sprite.y += sprite.vy;
-        // Boundary bounce
-        if (sprite.x < 50) { sprite.x = 50; sprite.vx = Math.abs(sprite.vx); }
-        if (sprite.x > canvas.width - 50) { sprite.x = canvas.width - 50; sprite.vx = -Math.abs(sprite.vx); }
-        if (sprite.y < 50) { sprite.y = 50; sprite.vy = Math.abs(sprite.vy); }
-        if (sprite.y > canvas.height - 50) { sprite.y = canvas.height - 50; sprite.vy = -Math.abs(sprite.vy); }
-        sprite.rotation = Math.atan2(sprite.vy, sprite.vx);
+        sprite.x = Math.max(20, Math.min(canvas.width - 60, sprite.x));
+        sprite.y = Math.max(20, Math.min(canvas.height - 60, sprite.y));
+        sprite.rotation = clampTilt(sprite.vx * 0.04);
+        sprite.bobOffset = Math.sin(now / 240) * 2;
         // Lightning trail
-        if (Math.random() < 0.4) {
-          trailsRef.current.push({ x: sprite.x + 24, y: sprite.y + 24, color: "#FFFF00", opacity: 0.7, life: 30, maxLife: 30, size: 2 });
+        if (Math.random() < 0.35) {
+          trailsRef.current.push({ x: sprite.x + 24, y: sprite.y + 30, color: "#FFF36B", opacity: 0.7, life: 26, maxLife: 26, size: 2 });
         }
       } else if (char === "SPIDER_MAN") {
-        // Pendulum swing
-        if (!sprite.anchorX) {
-          sprite.anchorX = canvas.width * 0.3;
-          sprite.anchorY = 60;
-          sprite.swingAngle = 0;
-          sprite.swingVel = 0.05;
+        // Web-swing — a real pendulum arc that drifts across; body leans into the swing
+        if (sprite.anchorX === undefined) {
+          sprite.anchorX = canvas.width * 0.28;
+          sprite.anchorY = 50;
+          sprite.swingT = 0;
         }
-        sprite.anchorX += 0.3;
-        const wrapPoint = canvas.width * 0.8;
-        if (sprite.anchorX > wrapPoint) sprite.anchorX = canvas.width * 0.2;
-        const radius = 180;
-        sprite.swingAngle += sprite.swingVel;
-        sprite.x = sprite.anchorX + Math.sin(sprite.swingAngle) * radius;
-        sprite.y = sprite.anchorY + Math.cos(sprite.swingAngle) * radius;
-        sprite.rotation = sprite.swingAngle;
+        sprite.swingT += 0.045;
+        sprite.anchorX += 0.9;
+        if (sprite.anchorX > canvas.width * 0.82) { sprite.anchorX = canvas.width * 0.18; sprite.anchorY = 40 + Math.random() * 40; }
+        const radius = 190;
+        const swing = Math.sin(sprite.swingT) * 1.05; // pendulum angle (radians)
+        sprite.x = sprite.anchorX + Math.sin(swing) * radius;
+        sprite.y = sprite.anchorY + Math.cos(swing) * radius;
+        sprite.vx = Math.cos(sprite.swingT); // sign drives facing direction
+        sprite.rotation = clampTilt(swing * 0.6);
+        sprite.bobOffset = 0;
       } else if (char === "HULK") {
         // Running with jumps
         if (!sprite.onGround) sprite.onGround = true;
@@ -1816,6 +2037,7 @@ const AvengersCanvas = ({ agentEvents }) => {
           }
         }
         sprite.rotation = 0;
+        sprite.bobOffset = sprite.onGround ? -Math.abs(Math.sin(now / 110)) * 4 : 0;
         if (sprite.squashFrames && sprite.squashFrames > 0) sprite.squashFrames--;
       } else if (char === "CAPTAIN_AMERICA") {
         // Running with shield throw
@@ -1826,27 +2048,33 @@ const AvengersCanvas = ({ agentEvents }) => {
         if (sprite.x > canvas.width - 48) { sprite.x = canvas.width - 48; sprite.vx = -3; }
         sprite.y = canvas.height - 100;
         sprite.rotation = 0;
+        sprite.bobOffset = -Math.abs(Math.sin(now / 100)) * 3;
         if (!sprite.shieldOut && now >= sprite.nextThrow) {
           sprite.shieldOut = true;
           sprite.shield = { x: sprite.x + 24, y: sprite.y + 24, vx: sprite.vx > 0 ? 8 : -8, vy: -2, phase: 0 };
           sprite.nextThrow = now + 3000;
         }
       } else if (char === "BLACK_WIDOW") {
-        // Fast with direction changes and flips
-        if (!sprite.nextFlip) sprite.nextFlip = now + (1000 + Math.random() * 1000);
+        // Agile darting with eased direction changes — stays upright, leans into turns
+        if (sprite.tvx === undefined) { sprite.tvx = (Math.random() - 0.5) * 7; sprite.tvy = (Math.random() - 0.5) * 5; sprite.nextFlip = now + 1400 + Math.random() * 1200; }
+        if (now >= sprite.nextFlip) {
+          sprite.tvx = (Math.random() - 0.5) * 8;
+          sprite.tvy = (Math.random() - 0.5) * 5;
+          sprite.nextFlip = now + 1400 + Math.random() * 1400;
+        }
+        const wmgn = 70;
+        if (sprite.x < wmgn) sprite.tvx += 0.4;
+        if (sprite.x > canvas.width - wmgn) sprite.tvx -= 0.4;
+        if (sprite.y < wmgn) sprite.tvy += 0.4;
+        if (sprite.y > canvas.height - wmgn) sprite.tvy -= 0.4;
+        sprite.vx += (sprite.tvx - sprite.vx) * 0.08;
+        sprite.vy += (sprite.tvy - sprite.vy) * 0.08;
         sprite.x += sprite.vx;
         sprite.y += sprite.vy;
-        if (sprite.x < 0 || sprite.x > canvas.width - 48) sprite.vx = -sprite.vx;
-        if (sprite.y < 0 || sprite.y > canvas.height - 48) sprite.vy = -sprite.vy;
-        if (now >= sprite.nextFlip) {
-          sprite.vx = (Math.random() - 0.5) * 8;
-          sprite.vy = (Math.random() - 0.5) * 8;
-          sprite.flipping = true;
-          sprite.flipStart = now;
-          sprite.nextFlip = now + (1000 + Math.random() * 1000);
-        }
-        sprite.rotation = Math.atan2(sprite.vy, sprite.vx);
-        if (sprite.flipping && now - sprite.flipStart > 300) sprite.flipping = false;
+        sprite.x = Math.max(16, Math.min(canvas.width - 60, sprite.x));
+        sprite.y = Math.max(16, Math.min(canvas.height - 60, sprite.y));
+        sprite.rotation = clampTilt(sprite.vx * 0.05);
+        sprite.bobOffset = 0;
         // Motion blur
         sprite.trail = sprite.trail || [];
         sprite.trail.push({ x: sprite.x, y: sprite.y });
@@ -1872,6 +2100,7 @@ const AvengersCanvas = ({ agentEvents }) => {
           sprite.moving = true;
         }
         sprite.rotation = 0;
+        sprite.bobOffset = sprite.moving ? -Math.abs(Math.sin(now / 130)) * 3 : 0;
       } else if (char === "VISION") {
         // Slow sine wave float
         if (!sprite.floatPhase) sprite.floatPhase = 0;
@@ -2009,6 +2238,8 @@ const AvengersCanvas = ({ agentEvents }) => {
         vx = 1.5; vy = 0;
       }
 
+      const _sp = AVENGER_SPRITES[avenger];
+      const _meta = AGENTS_LIST.find(a => a.id === agentEvents.agent);
       spritesRef.current.set(agentEvents.agent, {
         character: avenger,
         x, y, vx, vy,
@@ -2018,6 +2249,11 @@ const AvengersCanvas = ({ agentEvents }) => {
         rotation: 0,
         scale: 1,
         flashOn: false,
+        cx: _sp[0].length * PIXEL_SCALE / 2,
+        cy: _sp.length * PIXEL_SCALE / 2,
+        label: _meta ? _meta.name : agentEvents.agent.toUpperCase(),
+        role: _meta ? _meta.desc : "",
+        hue: HERO_HUE[avenger] || "#9fe9ff",
       });
       console.log('Total sprites now:', spritesRef.current.size);
     } else if (agentEvents.type === "agent_done") {
@@ -2041,12 +2277,14 @@ const AvengersCanvas = ({ agentEvents }) => {
   const drawSpriteAt = (ctx, sprite, x, y, alpha) => {
     const pixels = AVENGER_SPRITES[sprite.character];
     if (!pixels) return;
+    const rows = pixels.length, cols = pixels[0].length;
+    const halfW = (cols * PIXEL_SCALE) / 2, halfH = (rows * PIXEL_SCALE) / 2;
 
     ctx.save();
     ctx.globalAlpha = alpha;
-    ctx.translate(x + 24, y + 24);
+    ctx.translate(x + halfW, y + halfH);
 
-    // Rotation (continuous for flight direction)
+    // Rotation (gentle banking while in flight)
     if (sprite.rotation) ctx.rotate(sprite.rotation);
 
     // Mirror horizontally if moving left
@@ -2064,13 +2302,13 @@ const AvengersCanvas = ({ agentEvents }) => {
       ctx.scale(1.3, 0.7);
     }
 
-    ctx.translate(-24, -24);
+    ctx.translate(-halfW, -halfH);
 
     // Vision phasing
     if (sprite.phaseOpacity) ctx.globalAlpha = sprite.phaseOpacity;
 
-    for (let row = 0; row < 16; row++) {
-      for (let col = 0; col < 16; col++) {
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
         const color = pixels[row][col];
         if (color) {
           let fillColor = color;
@@ -2085,7 +2323,46 @@ const AvengersCanvas = ({ agentEvents }) => {
   };
 
   const drawSprite = (ctx, sprite, now) => {
-    drawSpriteAt(ctx, sprite, sprite.x, sprite.y, 1);
+    drawSpriteAt(ctx, sprite, sprite.x, sprite.y + (sprite.bobOffset || 0), 1);
+  };
+
+  const drawNameplate = (ctx, s, now) => {
+    const el = (now - s.startTime) / 1000;
+    if (el > 1.8) return;
+    let a = 1;
+    if (el < 0.25) a = el / 0.25;
+    else if (el > 1.4) a = Math.max(0, 1 - (el - 1.4) / 0.4);
+    const cx = s.x + (s.cx || 24);
+    const top = s.y + (s.cy ? s.cy * 2 : 72) + 8;
+    const hue = s.hue || "#9fe9ff";
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.font = "600 11px ui-monospace, monospace";
+    const nameW = ctx.measureText(s.label || "").width;
+    ctx.font = "9px ui-monospace, monospace";
+    const roleW = s.role ? ctx.measureText(s.role.toUpperCase()).width : 0;
+    const w = Math.max(nameW, roleW) + 18;
+    const h = s.role ? 31 : 19;
+    const x = cx - w / 2;
+    ctx.globalAlpha = a * 0.85;
+    ctx.fillStyle = "rgba(5,7,13,0.85)";
+    ctx.fillRect(x, top, w, h);
+    ctx.globalAlpha = a * 0.55;
+    ctx.strokeStyle = hue;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, top + 0.5, w - 1, h - 1);
+    ctx.globalAlpha = a;
+    ctx.fillStyle = hue;
+    ctx.font = "600 11px ui-monospace, monospace";
+    ctx.fillText(s.label || "", cx, top + 4);
+    if (s.role) {
+      ctx.globalAlpha = a * 0.72;
+      ctx.fillStyle = "#b4becd";
+      ctx.font = "9px ui-monospace, monospace";
+      ctx.fillText(s.role.toUpperCase(), cx, top + 18);
+    }
+    ctx.restore();
   };
 
   return (
@@ -2099,12 +2376,79 @@ const AvengersCanvas = ({ agentEvents }) => {
         height: "100%",
         zIndex: 9999,
         pointerEvents: "none",
+        background: "transparent",
       }}
     />
   );
 };
 
+// ── Metrics rail (left edge sparklines) ──────────────────────────────────────
+function Spark({ data, w = 138, h = 30 }) {
+  const max = Math.max(...data, 1), min = Math.min(...data, 0);
+  const range = Math.max(1, max - min);
+  const pts = data.map((v, i) => {
+    const x = (i / (data.length - 1)) * w;
+    const y = h - ((v - min) / range) * (h - 5) - 2.5;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  const last = pts[pts.length - 1].split(",");
+  return (
+    <svg className="metric-spark" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
+      <polyline points={`0,${h} ${pts.join(" ")} ${w},${h}`} fill="rgb(var(--accent-rgb) / 0.10)" stroke="none" />
+      <polyline points={pts.join(" ")} fill="none" stroke="rgb(var(--accent-rgb))" strokeOpacity="0.85" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={last[0]} cy={last[1]} r="1.8" fill="rgb(var(--accent-rgb))" />
+    </svg>
+  );
+}
+
+function MetricsRail({ activeCount }) {
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const N = 44;
+  const [tokens, setTokens] = useState(() => Array(N).fill(0).map(() => 30 + Math.random() * 40));
+  const [latency, setLatency] = useState(() => Array(N).fill(0).map(() => 36 + Math.random() * 24));
+  const [agents, setAgents] = useState(() => Array(N).fill(0));
+  const activeRef = useRef(activeCount);
+  activeRef.current = activeCount;
+  useEffect(() => {
+    const id = setInterval(() => {
+      const drift = activeRef.current > 0 ? 26 : 12;
+      setTokens(a => [...a.slice(1), clamp(a[a.length - 1] + (Math.random() - 0.45) * drift, 4, 100)]);
+      setLatency(a => [...a.slice(1), clamp(a[a.length - 1] + (Math.random() - 0.5) * 14, 18, 96)]);
+      setAgents(a => [...a.slice(1), activeRef.current]);
+    }, 700);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <div className="metrics-rail">
+      <div className="metric">
+        <div className="metric-head"><span>TOKENS/S</span><span className="metric-val">{Math.round(tokens[tokens.length - 1])}</span></div>
+        <Spark data={tokens} />
+      </div>
+      <div className="metric">
+        <div className="metric-head"><span>LATENCY</span><span className="metric-val">{Math.round(latency[latency.length - 1])}ms</span></div>
+        <Spark data={latency} />
+      </div>
+      <div className="metric">
+        <div className="metric-head"><span>ACTIVE AGENTS</span><span className="metric-val">{activeCount}</span></div>
+        <Spark data={agents} />
+      </div>
+    </div>
+  );
+}
+
 // ── App ────────────────────────────────────────────────────────────────────────
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "spawnSeconds": 10,
+  "spriteContrails": true,
+  "spriteNameplates": true,
+  "idlePatrol": true,
+  "metricsRail": true,
+  "convShimmer": true,
+  "crt": true,
+  "bootDiagnostics": true,
+  "panelBrackets": true
+}/*EDITMODE-END*/;
+
 function App() {
   const skipBoot = new URLSearchParams(window.location.search).has("skipBoot");
   const [booted, setBooted] = useState(skipBoot);
@@ -2125,10 +2469,34 @@ function App() {
   };
   const [conv, setConv] = useState([]);
   const [agentStates, setAgentStates] = useState({});
+  const activeCount = Object.values(agentStates).filter(s => s && s.status === "active").length;
   const [usage, setUsage] = useState(null);
   const [timers, setTimers] = useState([]);
   const [avengersEvent, setAvengersEvent] = useState(null);
+  const [tweaks, setTweak] = useState(TWEAK_DEFAULTS);
+  const demoTimersRef = useRef({});
   const { time, uptime } = useClock();
+
+  // Pop an agent's hero sprite onto the HUD for the tweakable duration, then
+  // let it exit gracefully (victory spin → fly off). Re-triggering resets it.
+  const demoAgent = (id) => {
+    const ms = (tweaks.spawnSeconds || 10) * 1000;
+    if (demoTimersRef.current[id]) clearTimeout(demoTimersRef.current[id]);
+    setAgentStates(prev => ({ ...prev, [id]: { status: "active", elapsed: null, lastUsed: prev[id]?.lastUsed || null } }));
+    setAvengersEvent({ type: "agent_start", agent: id });
+    demoTimersRef.current[id] = setTimeout(() => {
+      setAvengersEvent({ type: "agent_done", agent: id });
+      setAgentStates(prev => ({ ...prev, [id]: { status: "done", elapsed: (ms / 1000) + "s", lastUsed: ts() } }));
+      delete demoTimersRef.current[id];
+    }, ms);
+  };
+  const spawnAllAgents = () => AGENTS_LIST.forEach((a, i) => setTimeout(() => demoAgent(a.id), i * 220));
+  const clearAgents = () => {
+    Object.values(demoTimersRef.current).forEach(clearTimeout);
+    demoTimersRef.current = {};
+    setAvengersEvent({ type: "agents_clear" });
+    setAgentStates({});
+  };
 
   const [positions, setPositions] = useState(() => {
     try {
@@ -2316,23 +2684,23 @@ function App() {
   };
 
   return (
-    <div id="app" data-theme={model} data-state={state}>
+    <div id="app" data-theme={model} data-state={state} data-fx-brackets={tweaks.panelBrackets ? "1" : "0"}>
       <div className="bg"></div>
       <div className="bg-grid"></div>
       <div className="bg-grid-fine"></div>
       <div className="bg-noise"></div>
 
-      {!booted && <Boot onDone={() => setBooted(true)} />}
+      {!booted && <Boot onDone={() => setBooted(true)} detailed={tweaks.bootDiagnostics} />}
 
       {booted && (<>
-        <AvengersCanvas agentEvents={avengersEvent} />
+        <AvengersCanvas agentEvents={avengersEvent} contrails={tweaks.spriteContrails} nameplates={tweaks.spriteNameplates} idlePatrol={tweaks.idlePatrol} />
 
         <div className={`top-badge ${model === "sonnet" ? "show" : ""}`}>
           <span className="pip"></span>SONNET 4.6 ENGAGED
         </div>
 
         <div className="corner tl">
-          <span>JARVIS · PHASE 5</span>
+          <span>JARVIS · PHASE 15</span>
         </div>
         <div className="corner tr">
           <span className={`backend-pill ${wsState}`} title={`Backend ${wsState}`}>
@@ -2341,6 +2709,7 @@ function App() {
         </div>
         <div className="corner bl">EDWARD HADDAD · MAC STUDIO M4 MAX</div>
         <TopClock time={time} />
+        {tweaks.metricsRail && <MetricsRail activeCount={activeCount} />}
 
 
 
@@ -2355,7 +2724,7 @@ function App() {
 
         <div className={isMobile ? "mobile-panels" : ""}>
           <SystemPanel       pos={positions.system}       size={sizes.system}       onDrag={movePanel("system")}       onResize={resizePanel("system")}       onFocus={() => focusPanel("system")}       z={zFor("system")}       uptime={uptime} time={time} model={model} mode={mode} wsState={wsState} onToggleModel={onToggleModel} onToggleMode={onToggleMode} visible={panelsOn.system} />
-          <ConversationPanel pos={positions.conversation} size={sizes.conversation} onDrag={movePanel("conversation")} onResize={resizePanel("conversation")} onFocus={() => focusPanel("conversation")} z={zFor("conversation")} entries={conv} onSend={onSilentSend} visible={panelsOn.conversation} />
+          <ConversationPanel pos={positions.conversation} size={sizes.conversation} onDrag={movePanel("conversation")} onResize={resizePanel("conversation")} onFocus={() => focusPanel("conversation")} z={zFor("conversation")} entries={conv} onSend={onSilentSend} visible={panelsOn.conversation} shimmer={tweaks.convShimmer} />
           <AgentPanel        pos={positions.agents}       size={sizes.agents}       onDrag={movePanel("agents")}       onResize={resizePanel("agents")}       onFocus={() => focusPanel("agents")}       z={zFor("agents")}       agents={agentStates} visible={panelsOn.agents} />
           <UsagePanel        pos={positions.usage}        size={sizes.usage}        onDrag={movePanel("usage")}        onResize={resizePanel("usage")}        onFocus={() => focusPanel("usage")}        z={zFor("usage")}        usage={usage} visible={panelsOn.usage} />
           <SpotifyPanel      pos={positions.spotify}      size={sizes.spotify}      onDrag={movePanel("spotify")}      onResize={resizePanel("spotify")}      onFocus={() => focusPanel("spotify")}      z={zFor("spotify")}      visible={panelsOn.spotify} />
