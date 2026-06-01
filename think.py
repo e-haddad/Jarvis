@@ -27,6 +27,45 @@ from orchestrator import classify_intent
 from agents import run_career_agent, run_projects_agent, run_iris_agent, run_finance_agent
 from agent_bus import MasterOrchestrator
 
+# ── Instant Voice Acknowledgments ──────────────────────────────────────────────
+
+def _speak_ack(text: str):
+    """Speak a brief acknowledgment immediately — fire and forget, non-blocking."""
+    import threading
+    def _run():
+        try:
+            from speak import speak
+            speak(text)
+        except Exception:
+            pass
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def _get_ack(text: str) -> str:
+    """Return a short acknowledgment line appropriate for the query."""
+    lowered = text.lower()
+    if any(w in lowered for w in ["weather", "temperature", "forecast"]):
+        return "Checking the weather."
+    if any(w in lowered for w in ["stock", "watchlist", "market", "bitcoin", "crypto", "price"]):
+        return "Pulling the numbers."
+    if any(w in lowered for w in ["news", "what's happening", "latest"]):
+        return "Fetching the news."
+    if any(w in lowered for w in ["calendar", "schedule", "event", "meeting"]):
+        return "Checking your calendar."
+    if any(w in lowered for w in ["email", "draft", "gmail"]):
+        return "On it."
+    if any(w in lowered for w in ["play", "spotify", "music", "song"]):
+        return "On it."
+    if any(w in lowered for w in ["search", "find", "look up", "who is", "what is"]):
+        return "Looking that up."
+    if any(w in lowered for w in ["cover letter", "apply", "application", "job"]):
+        return "On it."
+    if any(w in lowered for w in ["code", "write", "build", "fix", "refactor"]):
+        return "On it."
+    if any(w in lowered for w in ["remind", "timer", "set"]):
+        return None  # reminder fast-path is already instant, no ack needed
+    return "On it."
+
 # ── Client ─────────────────────────────────────────────────────────────────────
 
 client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
@@ -1355,6 +1394,9 @@ def think(text: str, on_sentence=None) -> str:
     # For sufficiently complex turns, let the MasterOrchestrator decide which
     # specialists to run in parallel instead of the single-agent routing below.
     if USE_PARALLEL_AGENTS and len(text.split()) >= 6:
+        ack = _get_ack(text)
+        if ack:
+            _speak_ack(ack)
         response_text = MasterOrchestrator().dispatch(text, _history)
         if response_text:
             _history.append({"role": "user",      "content": text})
@@ -1383,6 +1425,9 @@ def think(text: str, on_sentence=None) -> str:
         return response_text
 
     if intent != "general":
+        ack = _get_ack(text)
+        if ack:
+            _speak_ack(ack)
         scoped = _history[-(6):]
         agent_messages = scoped + [{"role": "user", "content": text}]
 
@@ -1433,6 +1478,10 @@ def think(text: str, on_sentence=None) -> str:
         # Tool use mid-stream — fall through to blocking call
 
     # ── Blocking path ──────────────────────────────────────────────────────
+    # Speak acknowledgment before blocking API call
+    ack = _get_ack(text)
+    if ack:
+        _speak_ack(ack)
     response        = _call_claude(model, messages)
     tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
 

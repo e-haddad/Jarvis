@@ -84,6 +84,16 @@
     position: absolute; inset: 0; opacity: 0.04; mix-blend-mode: overlay;
     background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/></svg>");
   }
+  /* ── Scanline / Grid Overlay ────────────────────────────────────────────── */
+  .scanline-overlay {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(0,180,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,180,255,0.03) 1px, transparent 1px),
+      repeating-linear-gradient(transparent 0px, transparent 3px, rgba(0,0,0,0.08) 3px, rgba(0,0,0,0.08) 4px);
+    background-size: 40px 40px, 40px 40px, 100% 4px;
+    opacity: 0; animation: fade-in 1.2s var(--ease-out) 0.8s forwards;
+  }
   .corner {
     position: absolute; font-family: var(--font-mono); font-size: 10.5px;
     color: var(--ink-fainter); letter-spacing: 0.18em; font-weight: 500;
@@ -157,15 +167,32 @@
   @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
   .panel {
     position: absolute;
-    background: linear-gradient(180deg, rgba(12,15,22,0.72) 0%, rgba(8,11,18,0.68) 100%);
-    backdrop-filter: blur(24px) saturate(1.4); -webkit-backdrop-filter: blur(24px) saturate(1.4);
+    background: linear-gradient(180deg, rgba(12,15,22,0.92) 0%, rgba(8,11,18,0.88) 100%);
     border: 1px solid var(--hair); border-radius: 10px;
-    box-shadow: 0 1px 0 0 rgba(255,255,255,0.04) inset, 0 24px 60px -20px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.35);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 24px 60px -20px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.35);
     overflow: hidden; opacity: 0; animation: panel-in 0.7s var(--ease-out) forwards;
     display: flex; flex-direction: column;
     min-height: 0;
+    z-index: 10;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, max-height 0.3s ease, opacity 0.3s ease, transform 0.3s ease;
   }
+  .panel:not(.dragging):hover {
+    border-color: rgba(0,180,255,0.4);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 24px 60px -20px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.35), 0 0 20px rgba(0,180,255,0.12);
+  }
+  .panel.dragging { z-index: 100 !important; }
   .panel.resizing { transition: none !important; user-select: none; }
+  .panel-body {
+    max-height: 800px;
+    overflow: hidden;
+    transition: max-height 0.25s ease, opacity 0.25s ease, padding 0.25s ease;
+  }
+  .panel.collapsed .panel-body {
+    max-height: 0;
+    opacity: 0;
+    padding: 0;
+    overflow: hidden;
+  }
   .panel-resize {
     position: absolute; right: 0; bottom: 0;
     width: 18px; height: 18px;
@@ -349,7 +376,7 @@
     margin: 0 auto; width: max-content;
     display: inline-flex; align-items: baseline; gap: 14px;
     font-family: var(--font-mono); color: var(--ink);
-    z-index: 25; user-select: none; pointer-events: none;
+    z-index: 1; user-select: none; pointer-events: none;
     opacity: 0; animation: clock-in 0.9s var(--ease-out) 0.55s forwards;
   }
   @keyframes clock-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
@@ -365,40 +392,41 @@
     flex-direction: column;
     align-items: center;
     gap: 4px;
+    min-width: 280px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 8px 24px rgba(0,0,0,0.3);
   }
   .top-clock .hms {
-    font-size: 36px; font-weight: 700; letter-spacing: 0.14em;
+    font-size: 43px; font-weight: 700; letter-spacing: 0.14em;
     font-variant-numeric: tabular-nums;
     color: var(--ink);
     text-shadow: 0 0 22px rgb(var(--accent-rgb) / 0.45), 0 0 2px rgb(var(--accent-rgb) / 0.6);
     transition: color 0.6s var(--ease), text-shadow 0.6s var(--ease);
   }
   .top-clock .meridiem {
-    font-size: 13px; font-weight: 600; letter-spacing: 0.32em;
+    font-size: 15px; font-weight: 600; letter-spacing: 0.32em;
     color: var(--accent); opacity: 0.85;
     transition: color 0.6s var(--ease);
   }
   .top-clock-date {
-    font-size: 11px; font-weight: 500; letter-spacing: 0.18em;
+    font-size: 12px; font-weight: 500; letter-spacing: 0.18em;
     color: var(--ink); opacity: 0.55;
     font-family: var(--font-mono);
   }
   .top-clock-weather {
-    font-size: 12px; font-weight: 500;
+    font-size: 13px; font-weight: 500;
     color: var(--ink); opacity: 0.7;
     font-family: var(--font-mono);
   }
   .top-clock-calendar {
-    font-size: 11px; font-weight: 500;
+    font-size: 12px; font-weight: 500;
     color: var(--ink); opacity: 0.65;
     font-family: var(--font-mono);
-    max-width: 280px;
+    max-width: 450px;
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    overflow: visible;
   }
   .top-clock-bitcoin {
-    font-size: 11px; font-weight: 500;
+    font-size: 12px; font-weight: 500;
     color: var(--ink); opacity: 0.7;
     font-family: var(--font-mono);
   }
@@ -505,8 +533,7 @@
     position: fixed; bottom: 56px; left: 50%; transform: translateX(-50%);
     display: inline-flex; align-items: center; gap: 6px;
     padding: 8px; border-radius: 14px;
-    background: linear-gradient(180deg, rgba(12,15,22,0.72) 0%, rgba(8,11,18,0.78) 100%);
-    backdrop-filter: blur(24px) saturate(1.4); -webkit-backdrop-filter: blur(24px) saturate(1.4);
+    background: linear-gradient(180deg, rgba(12,15,22,0.92) 0%, rgba(8,11,18,0.88) 100%);
     border: 1px solid var(--hair);
     box-shadow: 0 1px 0 0 rgba(255,255,255,0.04) inset, 0 20px 50px -16px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.35);
     z-index: 30;
@@ -543,6 +570,54 @@
   .dock-divider {
     width: 1px; height: 18px; background: var(--hair); margin: 0 4px;
   }
+  /* ── Sleep Mode ──────────────────────────────────────────────────────────── */
+  [data-sleep="true"] .panel,
+  [data-sleep="true"] .top-clock,
+  [data-sleep="true"] .corner,
+  [data-sleep="true"] .metrics-rail { opacity: 0 !important; pointer-events: none !important; transition: opacity 0.8s ease; }
+  [data-sleep="true"] .ring-wrap { opacity: 0.1 !important; transition: opacity 0.8s ease; }
+  [data-sleep="true"] .dock {
+    padding: 6px 12px; transition: all 0.8s ease;
+  }
+  .sleep-indicator {
+    position: absolute; top: 2px; right: 2px;
+    width: 8px; height: 8px; border-radius: 50%;
+    background: oklch(0.70 0.24 22) !important;
+    box-shadow: 0 0 8px oklch(0.70 0.24 22 / 0.8) !important;
+    animation: pulse-dot 1.2s ease-in-out infinite;
+  }
+  .sleep-overlay {
+    position: fixed; top: 50%; left: 50%; z-index: 5;
+    transform: translate(-50%, -50%);
+    pointer-events: none; opacity: 0; transition: opacity 0.8s ease;
+  }
+  [data-sleep="true"] .sleep-overlay { opacity: 1; }
+  .sleep-icon {
+    position: absolute;
+    top: -140px; right: -140px;
+    font-size: 32px; color: var(--ink-fainter); opacity: 0.4;
+    animation: snore 2.5s ease-in-out infinite;
+    transform-origin: center center;
+  }
+  @keyframes snore {
+    0% { transform: scale(1) rotate(0deg); }
+    10% { transform: scale(1.05) rotate(-2deg); }
+    20% { transform: scale(1.15) rotate(2deg); }
+    30% { transform: scale(1.25) rotate(-3deg); }
+    40% { transform: scale(1.35) rotate(3deg); }
+    50% { transform: scale(1.4) rotate(0deg); }
+    60% { transform: scale(1.25) rotate(-2deg); }
+    70% { transform: scale(1.1) rotate(1deg); }
+    80% { transform: scale(1.0) rotate(0deg); }
+    100% { transform: scale(1) rotate(0deg); }
+  }
+  .panel-collapse-chevron {
+    font-family: var(--font-mono); font-size: 10px; color: var(--ink-dim);
+    margin-left: 8px; transition: transform 0.25s ease;
+    user-select: none;
+    display: inline-block;
+  }
+  .panel.collapsed .panel-collapse-chevron { transform: rotate(180deg); }
 
   .tiny-warn { display: none; }
 
@@ -703,7 +778,7 @@
   /* ════ FX: left metrics rail ════ */
   .metrics-rail {
     position: fixed; right: 24px; bottom: 96px;
-    display: flex; flex-direction: column; gap: 16px; z-index: 22; pointer-events: none;
+    display: flex; flex-direction: column; gap: 16px; z-index: 1; pointer-events: none;
     opacity: 0; animation: fade-up 0.9s var(--ease-out) 0.7s forwards;
   }
   .metric { width: 138px; }
@@ -912,11 +987,12 @@ const Ring = ({ state }) => {
 };
 
 // ── Panel shell ────────────────────────────────────────────────────────────────
-const Panel = ({ title, x, y, w, h, delayClass, children, onDrag, onResize, onFocus, z, minW = 240, minH = 160, maxW = 900, maxH = 1200, headerExtra = null }) => {
+const Panel = ({ title, x, y, w, h, delayClass, children, onDrag, onResize, onFocus, z, minW = 240, minH = 160, maxW = 900, maxH = 1200, headerExtra = null, collapsed, onToggleCollapse }) => {
   const ref = useRef(null);
   const drag = useRef(null);
   const resz = useRef(null);
   const [resizing, setResizing] = useState(false);
+  const [dragging, setDragging] = useState(false);
 
   // ── Drag ──
   const startDrag = (clientX, clientY) => {
@@ -938,16 +1014,18 @@ const Panel = ({ title, x, y, w, h, delayClass, children, onDrag, onResize, onFo
   };
   const onMouseDown = (e) => {
     startDrag(e.clientX, e.clientY);
+    setDragging(true);
     const onMove = (ev) => { if (drag.current) { const [cx, cy] = clampPos(ev.clientX - drag.current.offX, ev.clientY - drag.current.offY); onDrag(cx, cy); } };
-    const onUp = () => { drag.current = null; window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+    const onUp = () => { drag.current = null; setDragging(false); window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
   };
   const onTouchStart = (e) => {
     const t = e.touches[0];
     startDrag(t.clientX, t.clientY);
+    setDragging(true);
     const onMove = (ev) => { if (drag.current) { ev.preventDefault(); const tt=ev.touches[0]; const [cx, cy] = clampPos(tt.clientX - drag.current.offX, tt.clientY - drag.current.offY); onDrag(cx, cy); } };
-    const onEnd = () => { drag.current = null; window.removeEventListener("touchmove", onMove); window.removeEventListener("touchend", onEnd); };
+    const onEnd = () => { drag.current = null; setDragging(false); window.removeEventListener("touchmove", onMove); window.removeEventListener("touchend", onEnd); };
     window.addEventListener("touchmove", onMove, { passive: false });
     window.addEventListener("touchend", onEnd);
   };
@@ -1000,20 +1078,23 @@ const Panel = ({ title, x, y, w, h, delayClass, children, onDrag, onResize, onFo
   };
 
   const style = { left: x, top: y, width: w };
-  if (h) style.height = h;
+  if (h && !collapsed) style.height = h;
   if (z != null) style.zIndex = z;
 
   const bringToFront = (e) => { if (onFocus) onFocus(); };
 
   return (
     <div ref={ref}
-         className={`panel ${delayClass||""} ${resizing ? "resizing" : ""}`}
+         className={`panel ${delayClass||""} ${resizing ? "resizing" : ""} ${dragging ? "dragging" : ""} ${collapsed ? "collapsed" : ""}`}
          style={style}
          onMouseDownCapture={bringToFront}
          onTouchStartCapture={bringToFront}>
       <div className="corner-br-a"></div><div className="corner-br-b"></div>
-      <div className="panel-head" onMouseDown={onMouseDown} onTouchStart={onTouchStart}>
-        <div className="panel-title"><span className="glyph"></span>{title}</div>
+      <div className="panel-head" onMouseDown={onMouseDown} onTouchStart={onTouchStart} onDoubleClick={() => onToggleCollapse && onToggleCollapse()}>
+        <div className="panel-title">
+          <span className="glyph"></span>{title}
+          {onToggleCollapse && <span className="panel-collapse-chevron">{collapsed ? "▶" : "▼"}</span>}
+        </div>
         <div className="panel-head-right">
           {headerExtra}
           <div className="drag-hint">DRAG</div>
@@ -1033,11 +1114,11 @@ const Panel = ({ title, x, y, w, h, delayClass, children, onDrag, onResize, onFo
 };
 
 // ── System panel ───────────────────────────────────────────────────────────────
-const SystemPanel = ({ pos, size, onDrag, onResize, onFocus, z, uptime, time, model, mode, wsState, onToggleModel, onToggleMode, visible }) => {
+const SystemPanel = ({ pos, size, onDrag, onResize, onFocus, z, uptime, time, model, mode, wsState, onToggleModel, onToggleMode, visible, collapsed, onToggleCollapse }) => {
   if (!visible) return null;
   return (
   <Panel title="SYSTEM" x={pos.x} y={pos.y} w={size.w} h={size.h} onDrag={onDrag} onResize={onResize} onFocus={onFocus} z={z}
-         minW={260} minH={260} maxW={520} maxH={700} delayClass="delay-1">
+         minW={260} minH={260} maxW={520} maxH={700} delayClass="delay-1" collapsed={collapsed} onToggleCollapse={onToggleCollapse}>
     <div className="sys-row"><span className="k">UPTIME</span><span className="v">{uptime}</span></div>
     <div className="sys-row"><span className="k">LOCAL TIME</span><span className="v">{time}</span></div>
     <div className="sys-row"><span className="k">MODEL</span><span className="v accent clickable" onClick={onToggleModel}>{model === "sonnet" ? "SONNET 4.6" : "HAIKU 4.5"}</span></div>
@@ -1057,7 +1138,7 @@ const isToolMessage = (text) => {
   return patterns.some(p => text.includes(p));
 };
 
-const ConversationPanel = ({ pos, size, onDrag, onResize, onFocus, z, entries, onSend, visible, shimmer = true }) => {
+const ConversationPanel = ({ pos, size, onDrag, onResize, onFocus, z, entries, onSend, visible, shimmer = true, collapsed, onToggleCollapse }) => {
   if (!visible) return null;
   const listRef = useRef(null);
   const [val, setVal] = useState("");
@@ -1115,7 +1196,7 @@ const ConversationPanel = ({ pos, size, onDrag, onResize, onFocus, z, entries, o
 
   return (
     <Panel title="CONVERSATION" x={pos.x} y={pos.y} w={size.w} h={size.h} onDrag={onDrag} onResize={onResize} onFocus={onFocus} z={z}
-           minW={320} minH={260} maxW={900} maxH={1100} delayClass="delay-2">
+           minW={320} minH={260} maxW={900} maxH={1100} delayClass="delay-2" collapsed={collapsed} onToggleCollapse={onToggleCollapse}>
       <div className="conv-list" ref={listRef}>
         {entries.length === 0 && <div className="conv-empty">Waiting for input...</div>}
         {entries.map((e, i) => {
@@ -1157,7 +1238,7 @@ const ConversationPanel = ({ pos, size, onDrag, onResize, onFocus, z, entries, o
 
 // ── Agent panel ────────────────────────────────────────────────────────────────
 // `agents` is a map: { [id]: { status: "active"|"done"|"timeout"|"idle", elapsed, lastUsed } }
-const AgentPanel = ({ pos, size, onDrag, onResize, onFocus, z, agents, visible }) => {
+const AgentPanel = ({ pos, size, onDrag, onResize, onFocus, z, agents, visible, collapsed, onToggleCollapse }) => {
   const activeCount = AGENTS_LIST.reduce((n, a) => n + ((agents[a.id]?.status === "active") ? 1 : 0), 0);
 
   // PARALLEL badge: shows once 2+ agents run at once, fades out 3s after all complete.
@@ -1198,7 +1279,7 @@ const AgentPanel = ({ pos, size, onDrag, onResize, onFocus, z, agents, visible }
 
   return (
   <Panel title="AGENTS" x={pos.x} y={pos.y} w={size.w} h={size.h} onDrag={onDrag} onResize={onResize} onFocus={onFocus} z={z}
-         minW={240} minH={200} maxW={480} maxH={700} delayClass="delay-3" headerExtra={headerExtra}>
+         minW={240} minH={200} maxW={480} maxH={700} delayClass="delay-3" headerExtra={headerExtra} collapsed={collapsed} onToggleCollapse={onToggleCollapse}>
     {AGENTS_LIST.map(a => {
       const st     = agents[a.id] || {};
       const status = st.status || "idle";
@@ -1227,14 +1308,14 @@ const AgentPanel = ({ pos, size, onDrag, onResize, onFocus, z, agents, visible }
 };
 
 // ── Usage panel ────────────────────────────────────────────────────────────────
-const UsagePanel = ({ pos, size, onDrag, onResize, onFocus, z, usage, visible }) => {
+const UsagePanel = ({ pos, size, onDrag, onResize, onFocus, z, usage, visible, collapsed, onToggleCollapse }) => {
   if (!visible) return null;
   const claudePct = usage?.claude_pct ?? 0;
   const elPct     = usage?.el_pct ?? 0;
   const month     = usage?.month ?? "—";
   return (
     <Panel title="USAGE" x={pos.x} y={pos.y} w={size.w} h={size.h} onDrag={onDrag} onResize={onResize} onFocus={onFocus} z={z}
-           minW={240} minH={220} maxW={500} maxH={700} delayClass="delay-4">
+           minW={240} minH={220} maxW={500} maxH={700} delayClass="delay-4" collapsed={collapsed} onToggleCollapse={onToggleCollapse}>
       <div className="usage-card">
         <div className="label"><span>CLAUDE API</span><span>{claudePct}%</span></div>
         <div className="value">${usage?.claude_usd?.toFixed(2) ?? "0.00"}<span style={{fontSize:13,color:"var(--ink-dim)",marginLeft:6}}>/ ${usage?.claude_budget?.toFixed(0) ?? "20"}</span></div>
@@ -1379,9 +1460,9 @@ const DOCK_BUTTONS = [
   { key: "usage",        label: "USAGE" },
   { key: "spotify",      label: "SPOTIFY" },
 ];
-const Dock = ({ panelsOn, onToggle }) => (
-  <div className="dock" role="toolbar" aria-label="Panel visibility">
-    {DOCK_BUTTONS.map((b, i) => (
+const Dock = ({ panelsOn, onToggle, sleepMode, onToggleSleep }) => (
+  <div className={`dock ${sleepMode ? "sleep-mode" : ""}`} role="toolbar" aria-label="Panel visibility">
+    {!sleepMode && DOCK_BUTTONS.map((b, i) => (
       <React.Fragment key={b.key}>
         <button
           className={`dock-btn ${panelsOn[b.key] ? "on" : ""}`}
@@ -1393,11 +1474,19 @@ const Dock = ({ panelsOn, onToggle }) => (
         </button>
       </React.Fragment>
     ))}
+    <button
+      className={`dock-btn sleep-btn ${sleepMode ? "on" : ""}`}
+      onClick={onToggleSleep}
+      title={sleepMode ? "Wake up" : "Enter sleep mode"}
+    >
+      <span className={`pip ${sleepMode ? "wake-indicator" : ""}`}></span>
+      {sleepMode ? "WAKE" : "SLEEP"}
+    </button>
   </div>
 );
 
 // ── Spotify Panel ──────────────────────────────────────────────────────────────
-const SpotifyPanel = ({ pos, size, onDrag, onResize, onFocus, z, visible }) => {
+const SpotifyPanel = ({ pos, size, onDrag, onResize, onFocus, z, visible, collapsed, onToggleCollapse }) => {
   const [track, setTrack] = React.useState(null);
   const [isPlaying, setIsPlaying] = React.useState(false);
 
@@ -1434,7 +1523,7 @@ const SpotifyPanel = ({ pos, size, onDrag, onResize, onFocus, z, visible }) => {
 
   return (
     <Panel title="NOW PLAYING" x={pos.x} y={pos.y} w={size.w} h={size.h} onDrag={onDrag} onResize={onResize} onFocus={onFocus} z={z}
-           minW={220} minH={300} maxW={480} maxH={780} delayClass="delay-4">
+           minW={220} minH={300} maxW={480} maxH={780} delayClass="delay-4" collapsed={collapsed} onToggleCollapse={onToggleCollapse}>
       {!track ? (
         <div className="spotify-idle">NOTHING PLAYING</div>
       ) : (
@@ -2569,6 +2658,21 @@ function App() {
     return () => window.removeEventListener("resize", clampAll);
   }, [sizes]);
   const [isMobile, setIsMobile] = useState(() => window.innerWidth <= 768);
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      const saved = localStorage.getItem("jarvis_panel_collapsed");
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {};
+  });
+  const toggleCollapse = (key) => {
+    setCollapsed(prev => {
+      const next = { ...prev, [key]: !prev[key] };
+      try { localStorage.setItem("jarvis_panel_collapsed", JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+  const [sleepMode, setSleepMode] = useState(false);
   const [panelsOn, setPanelsOn] = useState(() => {
     try {
       const saved = localStorage.getItem("jarvis_panels_open");
@@ -2576,11 +2680,13 @@ function App() {
     } catch {}
     return { system: true, conversation: true, agents: false, usage: false, spotify: false };
   });
-  const togglePanel = (key) => setPanelsOn(p => {
-    const next = { ...p, [key]: !p[key] };
-    try { localStorage.setItem("jarvis_panels_open", JSON.stringify(next)); } catch {}
-    return next;
-  });
+  const togglePanel = (key) => {
+    setPanelsOn(p => {
+      const next = { ...p, [key]: !p[key] };
+      try { localStorage.setItem("jarvis_panels_open", JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
   useEffect(() => {
     const w = window.innerWidth, h = window.innerHeight;
     const mobile = w <= 768;
@@ -2615,7 +2721,10 @@ function App() {
 
   const handleWS = useCallback((msg) => {
     switch (msg.type) {
-      case "status":      setState(msg.value); break;
+      case "status":
+        setState(msg.value);
+        if (msg.value === "listening" && sleepMode) setSleepMode(false);
+        break;
       case "model":       setModel(msg.value); break;
       // Legacy single-agent routing: {type:"agent", value:"career"} activates one
       // (others go idle); value:"" clears. Kept for backward compatibility.
@@ -2684,11 +2793,12 @@ function App() {
   };
 
   return (
-    <div id="app" data-theme={model} data-state={state} data-fx-brackets={tweaks.panelBrackets ? "1" : "0"}>
+    <div id="app" data-theme={model} data-state={state} data-fx-brackets={tweaks.panelBrackets ? "1" : "0"} data-sleep={sleepMode ? "true" : "false"}>
       <div className="bg"></div>
       <div className="bg-grid"></div>
       <div className="bg-grid-fine"></div>
       <div className="bg-noise"></div>
+      <div className="scanline-overlay"></div>
 
       {!booted && <Boot onDone={() => setBooted(true)} detailed={tweaks.bootDiagnostics} />}
 
@@ -2723,14 +2833,15 @@ function App() {
         </div>
 
         <div className={isMobile ? "mobile-panels" : ""}>
-          <SystemPanel       pos={positions.system}       size={sizes.system}       onDrag={movePanel("system")}       onResize={resizePanel("system")}       onFocus={() => focusPanel("system")}       z={zFor("system")}       uptime={uptime} time={time} model={model} mode={mode} wsState={wsState} onToggleModel={onToggleModel} onToggleMode={onToggleMode} visible={panelsOn.system} />
-          <ConversationPanel pos={positions.conversation} size={sizes.conversation} onDrag={movePanel("conversation")} onResize={resizePanel("conversation")} onFocus={() => focusPanel("conversation")} z={zFor("conversation")} entries={conv} onSend={onSilentSend} visible={panelsOn.conversation} shimmer={tweaks.convShimmer} />
-          <AgentPanel        pos={positions.agents}       size={sizes.agents}       onDrag={movePanel("agents")}       onResize={resizePanel("agents")}       onFocus={() => focusPanel("agents")}       z={zFor("agents")}       agents={agentStates} visible={panelsOn.agents} />
-          <UsagePanel        pos={positions.usage}        size={sizes.usage}        onDrag={movePanel("usage")}        onResize={resizePanel("usage")}        onFocus={() => focusPanel("usage")}        z={zFor("usage")}        usage={usage} visible={panelsOn.usage} />
-          <SpotifyPanel      pos={positions.spotify}      size={sizes.spotify}      onDrag={movePanel("spotify")}      onResize={resizePanel("spotify")}      onFocus={() => focusPanel("spotify")}      z={zFor("spotify")}      visible={panelsOn.spotify} />
+          <SystemPanel       pos={positions.system}       size={sizes.system}       onDrag={movePanel("system")}       onResize={resizePanel("system")}       onFocus={() => focusPanel("system")}       z={zFor("system")}       uptime={uptime} time={time} model={model} mode={mode} wsState={wsState} onToggleModel={onToggleModel} onToggleMode={onToggleMode} visible={panelsOn.system} collapsed={collapsed.system} onToggleCollapse={() => toggleCollapse("system")} />
+          <ConversationPanel pos={positions.conversation} size={sizes.conversation} onDrag={movePanel("conversation")} onResize={resizePanel("conversation")} onFocus={() => focusPanel("conversation")} z={zFor("conversation")} entries={conv} onSend={onSilentSend} visible={panelsOn.conversation} shimmer={tweaks.convShimmer} collapsed={collapsed.conversation} onToggleCollapse={() => toggleCollapse("conversation")} />
+          <AgentPanel        pos={positions.agents}       size={sizes.agents}       onDrag={movePanel("agents")}       onResize={resizePanel("agents")}       onFocus={() => focusPanel("agents")}       z={zFor("agents")}       agents={agentStates} visible={panelsOn.agents} collapsed={collapsed.agents} onToggleCollapse={() => toggleCollapse("agents")} />
+          <UsagePanel        pos={positions.usage}        size={sizes.usage}        onDrag={movePanel("usage")}        onResize={resizePanel("usage")}        onFocus={() => focusPanel("usage")}        z={zFor("usage")}        usage={usage} visible={panelsOn.usage} collapsed={collapsed.usage} onToggleCollapse={() => toggleCollapse("usage")} />
+          <SpotifyPanel      pos={positions.spotify}      size={sizes.spotify}      onDrag={movePanel("spotify")}      onResize={resizePanel("spotify")}      onFocus={() => focusPanel("spotify")}      z={zFor("spotify")}      visible={panelsOn.spotify} collapsed={collapsed.spotify} onToggleCollapse={() => toggleCollapse("spotify")} />
         </div>
 
-        <Dock panelsOn={panelsOn} onToggle={togglePanel} />
+        <Dock panelsOn={panelsOn} onToggle={togglePanel} sleepMode={sleepMode} onToggleSleep={() => setSleepMode(!sleepMode)} />
+        <div className="sleep-overlay"><div className="sleep-icon">💤</div></div>
 
         {timers.length > 0 && (
           <div className="timer-stack">

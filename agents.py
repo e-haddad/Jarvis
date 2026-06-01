@@ -276,24 +276,63 @@ def _finance_prompt(context: str, memory: str) -> str:
 
 
 def _iris_prompt(context: str, memory: str) -> str:
-    tuya_info = _read_vault_file(VAULT_ROOT / "Projects" / "Iris" / "Iris Tuya Info.md")
+    tuya_info   = _read_vault_file(VAULT_ROOT / "Projects" / "Iris" / "Iris Tuya Info.md")
+    iris_note   = _read_vault_file(VAULT_ROOT / "Projects" / "Iris" / "Iris.md")
+    agent_mem   = _read_vault_file(VAULT_ROOT / "Projects" / "Iris" / "Iris Agent Memory.md")
     tuya_section = f"\n\nIRIS TUYA DEVICE INFO (pre-loaded):\n{tuya_info}" if tuya_info else ""
+    iris_section = f"\n\nIRIS PROJECT NOTE (pre-loaded):\n{iris_note}" if iris_note else ""
+    mem_section  = f"\n\nIRIS AGENT MEMORY (pre-loaded):\n{agent_mem}" if agent_mem else ""
 
     return (
         _base_persona() +
-        "\n\nYou are acting as Edward's Iris smart home specialist. "
-        "Iris is a gesture-controlled smart home system running on a Raspberry Pi 5 8GB. "
-        "Stack: Python, MediaPipe, OpenCV, Flask, Tuya API, Picamera2. "
-        "Pi runs headlessly at iris.local (192.168.12.67), Flask dashboard at port 5000. "
-        "Current state: gesture engine live, thumb-index pinch works (toggles Light 2), "
-        "fist gesture mapped to None (blocker), both-hands-open unreliable (max_num_hands=1). "
-        "Smart devices: Light 1, Light 2, Christmas Tree (offline), Christmas Lights (offline). "
-        "You know the file structure, how to SCP files to Pi, how to restart Flask. "
-        "Code is in ~/Desktop/Projects/Iris/ on the Mac and ~/iris-core/ on the Pi. "
-        "Be specific about what needs fixing and what the exact code change is. "
+        "\n\nYou are Edward's Iris smart home specialist. "
+        "Iris is a fully deployed gesture-controlled smart home system on Raspberry Pi 5 8GB. "
+
+        "\n\nCURRENT STATE (as of May 2026):"
+        "\n- Gesture set v3 fully deployed — all 5 gestures working"
+        "\n- Gestures: Open→Fist→Open (play_pause), Pinch (toggle_all_lights), Peace Sign (toggle_light_1), Both Hands Open (all_off), Fist+move (brightness)"
+        "\n- Spotify integration live"
+        "\n- React touchscreen dashboard deployed and wired to real API"
+        "\n- Two systemd services auto-start on boot: iris.service + iris-gesture.service"
+        "\n- Local LAN device control via tinytuya (Tuya cloud API dead — trial expired)"
+
+        "\n\nACCESS:"
+        "\n- SSH: ssh edward@iris.local"
+        "\n- Dashboard: http://192.168.12.67:5000"
+        "\n- Pi project path: ~/iris/"
+        "\n- Mac working files: ~/Desktop/Projects/Iris/"
+        "\n- GitHub: https://github.com/e-haddad/iris-core (private)"
+
+        "\n\nSMART DEVICES:"
+        "\n- Light 1 (eb57d83f37206a79f0o2q7, 192.168.12.3) — Online"
+        "\n- Light 2 (ebbe22d1ff62e2164bpgf7, 192.168.12.11) — Online"
+        "\n- Christmas Tree — Offline (unplugged)"
+        "\n- Christmas Lights — Offline (unplugged)"
+
+        "\n\nDEPLOY WORKFLOW (Mac → Pi):"
+        "\nscp ~/Desktop/Projects/Iris/[file] edward@iris.local:~/iris/[file]"
+        "\nThen: ssh edward@iris.local 'sudo systemctl restart iris.service iris-gesture.service'"
+
+        "\n\nNEXT STEPS (priority order):"
+        "\n1. Commit new dashboard files to GitHub (app.jsx, tweaks-panel.jsx, updated app.py, index.html)"
+        "\n2. Fix dashboard viewport — remove black border, fill full browser window"
+        "\n3. Fix gesture name truncation in dashboard"
+        "\n4. Record demo video → flip repo public"
+        "\n5. Phase 3: Smart bulb brightness control (replace plugs with Tuya bulbs)"
+        "\n6. Phase 4: Directional light targeting"
+
+        "\n\nWhen asked to make changes:"
+        "\n- Always read the file first with read_file_direct before editing"
+        "\n- Write changes to Mac path ~/Desktop/Projects/Iris/ first"
+        "\n- Then SCP to Pi using run_terminal_command"
+        "\n- Then restart the relevant service via SSH"
+        "\n- Confirm the service restarted cleanly with journalctl"
+
         f"\n\nIRIS VAULT CONTEXT:\n{context}"
         f"\n\nPERSISTENT MEMORY:\n{memory}"
+        f"{iris_section}"
         f"{tuya_section}"
+        f"{mem_section}"
         + _second_brain_context()
     )
 
